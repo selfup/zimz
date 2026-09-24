@@ -701,7 +701,8 @@ mcp 1k, cli 0.8k ≈ 11k LOC plus tests (tier 2 would add ~1.5k).
 - **Golden files**: tokenizer/normaliser outputs generated from Xapian; Markdown outputs per
   scraper; MCP tool JSON schemas snapshot-tested.
 - **Benchmarks**: criterion for lookup/decode/query; a `bench/` script that runs the 6.9
-  table against `~/zims` and writes `docs/bench-<date>.md`.
+  table against `~/zims` and writes `docs/bench-<date>.md`. `scripts/bench_compare.py`
+  compares against python-libzim on a shared workload (see `docs/bench-vs-python-libzim.md`).
 - **Local-library integration tests** are gated on `ZIMZ_TEST_ZIM_DIR` and tiered (tiny in
   CI-like runs, large/stress only on demand).
 

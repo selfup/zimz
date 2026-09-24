@@ -8,7 +8,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, Range};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+use std::sync::{Arc, OnceLock};
 
 use md5::{Digest, Md5};
 
@@ -31,6 +32,11 @@ pub struct OpenConfig {
     pub dirent_cache_entries: usize,
     /// Refuse to decompress a single cluster beyond this size.
     pub max_cluster_bytes: u64,
+    /// Bucket size of the in-memory lookup grids that narrow path and title binary
+    /// searches (libzim does the same). Every `lookup_bucket`-th key is sampled once,
+    /// lazily, so a lookup touches a handful of adjacent dirents instead of ~25 pages
+    /// scattered over the file. `0` disables the grids.
+    pub lookup_bucket: u32,
 }
 
 impl Default for OpenConfig {
@@ -39,7 +45,39 @@ impl Default for OpenConfig {
             cluster_cache_bytes: 256 << 20,
             dirent_cache_entries: 4096,
             max_cluster_bytes: 2 << 30,
+            lookup_bucket: 4096,
         }
+    }
+}
+
+/// Sampled keys (`namespace`, bytes) of every `step`-th entry of a sorted list.
+struct LookupGrid {
+    step: u32,
+    keys: Vec<(u8, Box<[u8]>)>,
+}
+
+impl LookupGrid {
+    fn build(
+        count: u32,
+        step: u32,
+        key_at: impl Fn(u32) -> Result<(u8, Box<[u8]>)>,
+    ) -> Result<Self> {
+        let mut keys = Vec::with_capacity((count / step + 1) as usize);
+        let mut i = 0;
+        while i < count {
+            keys.push(key_at(i)?);
+            i = i.saturating_add(step);
+        }
+        Ok(Self { step, keys })
+    }
+
+    /// The index range `[start, end)` that must contain the lower bound of `key`.
+    fn bucket(&self, key: (u8, &[u8]), count: u32) -> (u32, u32) {
+        let n = self.keys.partition_point(|k| (k.0, &*k.1) <= key) as u32;
+        if n == 0 {
+            return (0, self.step.min(count));
+        }
+        ((n - 1) * self.step, (n * self.step).min(count))
     }
 }
 
@@ -112,7 +150,15 @@ pub struct Archive {
     dirents: DirentCache,
     clusters: ClusterCache,
     config: OpenConfig,
+    path_grid: OnceLock<Option<LookupGrid>>,
+    title_grid: OnceLock<Option<LookupGrid>>,
+    path_lookups: AtomicU32,
+    title_lookups: AtomicU32,
 }
+
+/// Lookups performed before a grid is built, so that opening an archive (a couple of
+/// lookups) never pays the sampling cost.
+const GRID_AFTER_LOOKUPS: u32 = 8;
 
 impl fmt::Debug for Archive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -222,6 +268,10 @@ impl Archive {
             dirents: DirentCache::new(config.dirent_cache_entries),
             clusters: ClusterCache::new(config.cluster_cache_bytes),
             config,
+            path_grid: OnceLock::new(),
+            title_grid: OnceLock::new(),
+            path_lookups: AtomicU32::new(0),
+            title_lookups: AtomicU32::new(0),
         };
         archive.title_index = archive.resolve_title_index()?;
         Ok(archive)
@@ -386,9 +436,55 @@ impl Archive {
 
     /// Binary search in path order. Returns `(found, index)`; when not found, `index`
     /// is the insertion point (first entry greater than the key).
+    /// Sampled path keys, built on first use (bypassing the dirent cache).
+    fn path_grid(&self) -> Option<&LookupGrid> {
+        self.path_grid
+            .get_or_init(|| {
+                let step = self.config.lookup_bucket;
+                if step == 0 || self.header.entry_count <= step {
+                    return None;
+                }
+                LookupGrid::build(self.header.entry_count, step, |i| {
+                    let d = self.read_dirent(i, self.dirent_offset(i)?)?;
+                    Ok((d.namespace, d.path.into_bytes().into_boxed_slice()))
+                })
+                .ok()
+            })
+            .as_ref()
+    }
+
+    /// Sampled title keys over the title-ordered list, built on first use.
+    fn title_grid(&self) -> Option<&LookupGrid> {
+        self.title_grid
+            .get_or_init(|| {
+                let step = self.config.lookup_bucket;
+                let count = self.title_index.len();
+                if step == 0 || count <= step {
+                    return None;
+                }
+                LookupGrid::build(count, step, |pos| {
+                    let idx = self.title_entry_index(pos)?;
+                    let d = self.read_dirent(idx, self.dirent_offset(idx)?)?;
+                    let title = if d.title.is_empty() { d.path } else { d.title };
+                    Ok((d.namespace, title.into_bytes().into_boxed_slice()))
+                })
+                .ok()
+            })
+            .as_ref()
+    }
+
     pub fn find_path(&self, namespace: u8, path: &str) -> Result<(bool, u32)> {
         let key = (namespace, path.as_bytes());
-        let (mut lo, mut hi) = (0u32, self.header.entry_count);
+        let grid = if self.path_lookups.fetch_add(1, AtomicOrdering::Relaxed) >= GRID_AFTER_LOOKUPS
+        {
+            self.path_grid()
+        } else {
+            self.path_grid.get().and_then(Option::as_ref)
+        };
+        let (mut lo, mut hi) = match grid {
+            Some(grid) => grid.bucket(key, self.header.entry_count),
+            None => (0u32, self.header.entry_count),
+        };
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
             let d = self.entry(mid)?;
@@ -694,7 +790,16 @@ impl Archive {
             return Err(Error::NoTitleIndex);
         }
         let key = (namespace, title);
-        let (mut lo, mut hi) = (0u32, self.title_index.len());
+        let grid = if self.title_lookups.fetch_add(1, AtomicOrdering::Relaxed) >= GRID_AFTER_LOOKUPS
+        {
+            self.title_grid()
+        } else {
+            self.title_grid.get().and_then(Option::as_ref)
+        };
+        let (mut lo, mut hi) = match grid {
+            Some(grid) => grid.bucket(key, self.title_index.len()),
+            None => (0u32, self.title_index.len()),
+        };
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
             let d = self.entry_by_title_position(mid)?;
@@ -729,16 +834,21 @@ impl Archive {
     /// libzim's `getEntryByTitle`: exact title match in the content namespace (new
     /// scheme), or in `A`, `I`, `J`, `-` in turn (old scheme).
     pub fn entry_by_title(&self, title: &str) -> Result<Option<Arc<Dirent>>> {
+        if self.title_index == TitleIndex::None {
+            return Err(Error::NoTitleIndex);
+        }
         let namespaces: &[u8] = if self.uses_new_namespace_scheme() {
             b"C"
         } else {
             b"AIJ-"
         };
         for &ns in namespaces {
-            let range = self.find_title_prefix(ns, title)?;
-            for pos in range {
+            // one lower bound is enough: an exact match must sit at the first position
+            // whose (namespace, title) is >= the key
+            let pos = self.title_lower_bound(ns, title.as_bytes())?;
+            if pos < self.title_index.len() {
                 let d = self.entry_by_title_position(pos)?;
-                if d.title() == title {
+                if d.namespace == ns && d.title() == title {
                     return Ok(Some(d));
                 }
             }
@@ -841,6 +951,38 @@ mod tests {
     fn archive_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Archive>();
+    }
+
+    #[test]
+    fn lookup_grid_buckets() {
+        // keys at indexes 0,3,6,9 of a 10-entry list
+        let keys = [(b'C', "a"), (b'C', "d"), (b'C', "g"), (b'M', "x")];
+        let grid = LookupGrid::build(10, 3, |i| {
+            let (ns, k) = keys[(i / 3) as usize];
+            Ok((ns, k.as_bytes().to_vec().into_boxed_slice()))
+        })
+        .unwrap();
+        assert_eq!(grid.keys.len(), 4);
+        assert_eq!(
+            grid.bucket((b'A', b"zzz"), 10),
+            (0, 3),
+            "before the first key"
+        );
+        assert_eq!(
+            grid.bucket((b'C', b"a"), 10),
+            (0, 3),
+            "equal to the first key"
+        );
+        assert_eq!(grid.bucket((b'C', b"b"), 10), (0, 3));
+        assert_eq!(grid.bucket((b'C', b"d"), 10), (3, 6));
+        assert_eq!(grid.bucket((b'C', b"f"), 10), (3, 6));
+        assert_eq!(grid.bucket((b'C', b"g"), 10), (6, 9));
+        assert_eq!(
+            grid.bucket((b'M', b"x"), 10),
+            (9, 10),
+            "last bucket is clipped to the count"
+        );
+        assert_eq!(grid.bucket((b'Z', b""), 10), (9, 10));
     }
 
     #[test]

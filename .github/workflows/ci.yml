@@ -26,6 +26,13 @@ jobs:
       - name: Test pure-Rust codecs
         run: cargo test -p zimz-core --no-default-features --features zstd-pure,xz-pure
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Validate the test builder's archives with python-libzim
+        run: |
+          cargo test -p zimz-core --test synthetic -- --ignored write_synthetic
+          uv run scripts/validate_synthetic.py
       - name: Parity against python-libzim (fixtures)
         run: |
           mkdir -p target/parity

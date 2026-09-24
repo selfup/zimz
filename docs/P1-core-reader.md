@@ -70,6 +70,13 @@ Cold Wikipedia numbers are disk-bound page faults on a 124 GB mmap; warm-cache
 lookups are microseconds. Local-library sweep (51 files, checksums for files < 256 MiB,
 main page + 25 entries + title order per file): 20 s.
 
+## Comparison with python-libzim
+
+See `docs/bench-vs-python-libzim.md` (`uv run scripts/bench_compare.py`): warm lookups
+3–40x faster than the reference reader, cluster decoding at parity (same libzstd),
+cached reads two to three orders of magnitude faster. That work added the lookup grids
+and simplified `entry_by_title`.
+
 ## Notes for P2
 
 - `Archive::fulltext_index()` / `title_xapian_index()` return the byte range of the glass

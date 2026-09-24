@@ -10,12 +10,11 @@ mod common;
 use common::builder::Codec;
 use common::builder::{ZimBuilder, sample};
 use common::open_bytes;
-#[cfg(feature = "zstd-c")]
 use common::open_bytes_with;
-use zimz_core::integrity::{self, Check};
 #[cfg(feature = "zstd-c")]
-use zimz_core::{Compression, OpenConfig};
-use zimz_core::{DirentKind, Error, TitleIndex};
+use zimz_core::Compression;
+use zimz_core::integrity::{self, Check};
+use zimz_core::{DirentKind, Error, OpenConfig, TitleIndex};
 
 #[test]
 fn builder_output_is_valid_for_both_schemes() {
@@ -320,6 +319,88 @@ fn entry_by_path_compat_rules() {
         "wrong namespace falls back"
     );
     assert!(old.entry_by_path_compat("Nope").unwrap().is_none());
+}
+
+#[test]
+fn lookup_grids_agree_with_plain_binary_search() {
+    let mut b = ZimBuilder::new_scheme();
+    for i in 0..500 {
+        b = b.html(
+            &format!("Page_{:04}", i * 7 % 500),
+            &format!("Title {:04}", i * 13 % 500),
+            "x",
+        );
+    }
+    for i in 0..60 {
+        b = b.item(b'M', &format!("Meta{i:02}"), "", "text/plain", "m");
+    }
+    let bytes = b.build();
+    let plain = open_bytes_with(
+        bytes.clone(),
+        OpenConfig {
+            lookup_bucket: 0,
+            ..OpenConfig::default()
+        },
+    )
+    .unwrap();
+    for bucket in [1u32, 2, 7, 64, 499, 512, 10_000] {
+        let gridded = open_bytes_with(
+            bytes.clone(),
+            OpenConfig {
+                lookup_bucket: bucket,
+                ..OpenConfig::default()
+            },
+        )
+        .unwrap();
+        for i in 0..plain.entry_count() {
+            let e = plain.entry(i).unwrap();
+            assert_eq!(
+                gridded.find_path(e.namespace, &e.path).unwrap(),
+                (true, i),
+                "bucket {bucket}"
+            );
+            // misses: neighbours of every key, in every namespace
+            for probe in [
+                format!("{}!", e.path),
+                format!("{}~", e.path),
+                e.path[..e.path.len() - 1].to_string(),
+            ] {
+                for ns in *b"ACMZ" {
+                    assert_eq!(
+                        gridded.find_path(ns, &probe).unwrap(),
+                        plain.find_path(ns, &probe).unwrap(),
+                        "bucket {bucket} {ns} {probe}"
+                    );
+                }
+            }
+        }
+        for pos in 0..plain.title_index().len() {
+            let e = plain.entry_by_title_position(pos).unwrap();
+            for t in [
+                e.title().to_string(),
+                format!("{}!", e.title()),
+                "Title".to_string(),
+                String::new(),
+                "zzz".to_string(),
+            ] {
+                for ns in *b"CM" {
+                    assert_eq!(
+                        gridded.title_lower_bound(ns, t.as_bytes()).unwrap(),
+                        plain.title_lower_bound(ns, t.as_bytes()).unwrap(),
+                        "bucket {bucket} {ns} {t:?}"
+                    );
+                }
+            }
+            assert_eq!(
+                gridded.entry_by_title(e.title()).unwrap().unwrap().index,
+                e.index
+            );
+        }
+        assert_eq!(
+            gridded.find_title_prefix(b'C', "Title 00").unwrap(),
+            plain.find_title_prefix(b'C', "Title 00").unwrap()
+        );
+    }
 }
 
 #[test]
@@ -844,7 +925,8 @@ fn split_archive_from_temp_parts_equals_whole() {
 }
 
 /// `cargo test -p zimz-core --test synthetic -- --ignored write_synthetic` writes the
-/// builder's output to `target/synthetic/` so it can be checked with python-libzim.
+/// builder's output to `target/synthetic/`; `uv run scripts/validate_synthetic.py` then
+/// checks every file with python-libzim (CI does both).
 #[test]
 #[ignore = "writes files under target/ for validation with python-libzim"]
 fn write_synthetic_archives_for_external_validation() {
