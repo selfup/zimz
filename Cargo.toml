@@ -13,17 +13,22 @@ repository = "https://github.com/selfup/zimz"
 
 [workspace.dependencies]
 zimz-core = { path = "crates/zimz-core" }
+zimz-glass = { path = "crates/zimz-glass" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 liblzma = { version = "0.4", features = ["static"] }
 lru = "0.18"
 lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
 md-5 = "0.11"
 memmap2 = "0.9"
 ruzstd = "0.9"
+rust-stemmers = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+unicode-general-category = "1.1"
+unicode-normalization = "0.1"
 zstd = "0.14"
 
 [workspace.lints.rust]

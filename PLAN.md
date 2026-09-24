@@ -737,6 +737,8 @@ mcp 1k, cli 0.8k ≈ 11k LOC plus tests (tier 2 would add ~1.5k).
 Scheduled phases are therefore P0–P4 (bootstrap, core reader, glass reader, extraction,
 search + MCP). P5 and the "later" list stay in the plan as designed but unscheduled work.
 
+Status: P0–P1 done (`docs/P1-core-reader.md`), P2 done (`docs/P2-glass-reader.md`).
+
 ---
 
 ## 11. References

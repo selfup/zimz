@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 zimz-core = { workspace = true }
+zimz-glass = { workspace = true }
 
 [lints]
 workspace = true

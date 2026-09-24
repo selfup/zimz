@@ -59,6 +59,32 @@ enum Cmd {
         #[arg(long)]
         clusters: bool,
     },
+    /// Full-text search using the archive's embedded Xapian index
+    Search {
+        zim: PathBuf,
+        query: String,
+        /// Number of results
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        /// Match any term instead of all terms
+        #[arg(long)]
+        any: bool,
+        /// Print timings to stderr
+        #[arg(long)]
+        time: bool,
+    },
+    /// Title suggestions (type-ahead) using the archive's embedded title index
+    Suggest {
+        zim: PathBuf,
+        prefix: String,
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: usize,
+        /// Print timings to stderr
+        #[arg(long)]
+        time: bool,
+    },
     /// Write an embedded Xapian index blob to a file
     DumpIndex {
         zim: PathBuf,
@@ -91,6 +117,20 @@ fn main() -> anyhow::Result<()> {
             checksum,
             clusters,
         } => check(&zim, checksum, clusters),
+        Cmd::Search {
+            zim,
+            query,
+            limit,
+            offset,
+            any,
+            time,
+        } => search(&zim, &query, limit, offset, any, time),
+        Cmd::Suggest {
+            zim,
+            prefix,
+            limit,
+            time,
+        } => suggest_cmd(&zim, &prefix, limit, time),
         Cmd::DumpIndex { zim, kind, output } => dump_index(&zim, &kind, &output),
     }
 }
@@ -342,6 +382,118 @@ fn check(path: &PathBuf, checksum: bool, clusters: bool) -> anyhow::Result<()> {
         println!("{:?}: {}", p.check, p.message);
     }
     bail!("{} problem(s) found", problems.len());
+}
+
+fn search(
+    path: &PathBuf,
+    query: &str,
+    limit: usize,
+    offset: usize,
+    any: bool,
+    time: bool,
+) -> anyhow::Result<()> {
+    use std::time::Instant;
+    use zimz_glass::search::{Op, Query};
+    let t0 = Instant::now();
+    let archive = open(path)?;
+    let da = archive
+        .fulltext_index()?
+        .with_context(|| "archive has no fulltext index")?;
+    let bytes = archive.source().slice(da.offset, da.len as usize)?;
+    let db = zimz_glass::GlassDb::open(&bytes)?;
+    let language = db
+        .metadata_string("language")?
+        .or(archive.metadata_string("Language")?);
+    let analyzer = zimz_glass::Analyzer::new(language.as_deref());
+    let q = Query::parse(&analyzer, query, if any { Op::Or } else { Op::And });
+    let t1 = Instant::now();
+    let results = zimz_glass::search::search(&db, &q, offset, limit)?;
+    let t2 = Instant::now();
+    let title_slot = db.value_slot("title")?.unwrap_or(0);
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let terms: Vec<&str> = q.terms.iter().map(|t| t.term.as_str()).collect();
+    writeln!(
+        out,
+        "{} matches for {:?} (terms: {})",
+        results.total,
+        query,
+        terms.join(" ")
+    )?;
+    for (i, hit) in results.hits.iter().enumerate() {
+        let data = db.docdata_string(hit.docid)?.unwrap_or_default();
+        let entry_path = if archive.uses_new_namespace_scheme() {
+            data.strip_prefix("C/").unwrap_or(&data).to_string()
+        } else {
+            data.clone()
+        };
+        let title = archive
+            .entry_by_path_compat(&entry_path)?
+            .map(|e| e.title().to_string())
+            .or(db.value_string(hit.docid, title_slot)?)
+            .unwrap_or_default();
+        writeln!(
+            out,
+            "{:>3}. {:>3}%  {}  [{}]",
+            offset + i + 1,
+            hit.percent,
+            title,
+            entry_path
+        )?;
+    }
+    if time {
+        eprintln!(
+            "open+parse {:.1?}, search {:.1?}, total {:.1?}",
+            t1 - t0,
+            t2 - t1,
+            t0.elapsed()
+        );
+    }
+    Ok(())
+}
+
+fn suggest_cmd(path: &PathBuf, prefix: &str, limit: usize, time: bool) -> anyhow::Result<()> {
+    use std::time::Instant;
+    let t0 = Instant::now();
+    let archive = open(path)?;
+    let da = archive
+        .title_xapian_index()?
+        .with_context(|| "archive has no title index")?;
+    let bytes = archive.source().slice(da.offset, da.len as usize)?;
+    let db = zimz_glass::GlassDb::open(&bytes)?;
+    let language = db
+        .metadata_string("language")?
+        .or(archive.metadata_string("Language")?);
+    let analyzer = zimz_glass::Analyzer::new(language.as_deref());
+    let t1 = Instant::now();
+    let results = zimz_glass::suggest::suggest(&db, &analyzer, prefix, 0, limit)?;
+    let t2 = Instant::now();
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    writeln!(out, "{} matching titles for {prefix:?}", results.total)?;
+    for (i, s) in results.hits.iter().enumerate() {
+        let p = if archive.uses_new_namespace_scheme() {
+            s.path.strip_prefix("C/").unwrap_or(&s.path)
+        } else {
+            &s.path
+        };
+        let target = s
+            .target_path
+            .as_deref()
+            .filter(|t| *t != p)
+            .map(|t| format!(" -> {t}"))
+            .unwrap_or_default();
+        writeln!(out, "{:>3}. {}  [{p}]{target}", i + 1, s.title)?;
+    }
+    if time {
+        eprintln!(
+            "open+parse {:.1?}, suggest {:.1?}, total {:.1?}",
+            t1 - t0,
+            t2 - t1,
+            t0.elapsed()
+        );
+    }
+    Ok(())
 }
 
 fn dump_index(path: &PathBuf, kind: &str, output: &PathBuf) -> anyhow::Result<()> {
