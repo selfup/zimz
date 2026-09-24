@@ -87,11 +87,10 @@ pub struct ContextResponse {
     /// Search hits examined (some may have been skipped: no text, over budget).
     pub hits_considered: usize,
     pub fallback_used: bool,
-    pub archives_searched: Vec<String>,
+    /// Number of archives that were searched.
+    pub archives_searched: usize,
     pub warnings: Vec<String>,
     pub elapsed_ms: u64,
-    /// All excerpts rendered as one Markdown document with a `Source:` line each.
-    pub markdown: String,
 }
 
 struct Pick {
@@ -176,9 +175,11 @@ fn trim_chars(text: &str, max_chars: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
-fn render(excerpts: &[Excerpt]) -> String {
+/// All excerpts as one Markdown document with a `Source:` line each (the text
+/// rendering; it is not part of the structured response to keep payloads small).
+pub fn render_markdown(response: &ContextResponse) -> String {
     let mut out = String::new();
-    for (i, e) in excerpts.iter().enumerate() {
+    for (i, e) in response.excerpts.iter().enumerate() {
         if i > 0 {
             out.push_str("\n\n---\n\n");
         }
@@ -289,7 +290,6 @@ impl Library {
                 matched_terms: pick.matched,
             });
         }
-        let markdown = render(&excerpts);
         Ok(ContextResponse {
             query: req.query.trim().to_string(),
             excerpts,
@@ -300,7 +300,6 @@ impl Library {
             archives_searched: search.archives_searched,
             warnings,
             elapsed_ms: t0.elapsed().as_millis() as u64,
-            markdown,
         })
     }
 }

@@ -80,7 +80,7 @@ fn scan_and_soak_local_library() {
                 eprintln!(
                     "search {q:?}: {} hits from {} archives, est {}, {ms} ms, top: {}",
                     res.hits.len(),
-                    res.archives_searched.len(),
+                    res.archives_searched,
                     res.total_estimate,
                     res.hits
                         .first()

@@ -67,7 +67,7 @@ pub fn search(r: &SearchResponse) -> String {
         "{} hit(s) shown, about {} matching in {} archive(s) for {:?}{}\n",
         r.hits.len(),
         r.total_estimate,
-        r.archives_searched.len(),
+        r.archives_searched,
         r.query,
         if r.fallback_used {
             " (AND matched too few; OR matches appended and marked partial)"
@@ -181,18 +181,17 @@ pub fn context(r: &ContextResponse) -> String {
         let _ = writeln!(
             out,
             "No excerpts found for {:?} in {} archive(s).",
-            r.query,
-            r.archives_searched.len()
+            r.query, r.archives_searched
         );
     } else {
-        out.push_str(&r.markdown);
+        out.push_str(&zimz_search::render_markdown(r));
         let _ = write!(
             out,
             "\n\n[{} excerpt(s), {} of {} chars, from {} archive(s){}]\n",
             r.excerpts.len(),
             r.chars_used,
             r.budget_chars,
-            r.archives_searched.len(),
+            r.archives_searched,
             if r.fallback_used {
                 "; some excerpts match only part of the query"
             } else {

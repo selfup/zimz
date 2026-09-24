@@ -48,7 +48,8 @@ pub struct SuggestResponse {
     pub prefix: String,
     pub suggestions: Vec<SuggestionHit>,
     pub total_estimate: u64,
-    pub archives_searched: Vec<String>,
+    /// Number of archives that were searched.
+    pub archives_searched: usize,
     pub warnings: Vec<String>,
     pub elapsed_ms: u64,
 }
@@ -143,10 +144,7 @@ impl Library {
                 Err(e) => warnings.push(format!("{}: {e}", self.slots()[i].name())),
             }
         }
-        let archives_searched = runs
-            .iter()
-            .map(|(i, _)| self.slots()[*i].name().to_string())
-            .collect();
+        let archives_searched = runs.len();
         let total_estimate = runs.iter().map(|(_, (_, t, _))| *t).sum();
         let lists: Vec<(f64, Vec<Tagged>)> = runs
             .into_iter()

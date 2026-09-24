@@ -209,7 +209,17 @@ impl Library {
         let (body, section_title): (&str, Option<String>) = match &req.section {
             Some(name) => {
                 let i = doc.find_section(name).ok_or_else(|| {
-                    Error::Invalid(format!("no section matching {name:?} (use `outline`)"))
+                    let known: Vec<String> = doc
+                        .sections
+                        .iter()
+                        .enumerate()
+                        .take(60)
+                        .map(|(i, s)| format!("{i}={:?}", s.title))
+                        .collect();
+                    Error::Invalid(format!(
+                        "no section matching {name:?}; sections: {}",
+                        known.join(", ")
+                    ))
                 })?;
                 (
                     doc.section_markdown(i).unwrap_or(""),

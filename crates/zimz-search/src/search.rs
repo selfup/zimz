@@ -125,7 +125,8 @@ pub struct SearchResponse {
     pub next_cursor: Option<String>,
     /// OR matches were appended because AND matched fewer than a page.
     pub fallback_used: bool,
-    pub archives_searched: Vec<String>,
+    /// Number of archives that were searched (see `list_archives` for names).
+    pub archives_searched: usize,
     /// Archives that were selected but skipped (no usable index) or failed.
     pub warnings: Vec<String>,
     pub elapsed_ms: u64,
@@ -466,10 +467,7 @@ impl Library {
         let (mut and_runs, w) = run_all(Op::And, false);
         warnings.extend(w);
         assign_strength(&mut and_runs);
-        let archives_searched: Vec<String> = and_runs
-            .iter()
-            .map(|r| self.slots()[r.slot].name().to_string())
-            .collect();
+        let archives_searched = and_runs.len();
         let fused_and = fuse_runs(&and_runs, self);
         let mut total_estimate: u64 = and_runs.iter().map(|r| r.total).sum();
 

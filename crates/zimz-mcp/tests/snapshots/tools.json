@@ -373,10 +373,10 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "archives_searched": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "description": "Number of archives that were searched.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         },
         "budget_chars": {
           "format": "uint",
@@ -408,10 +408,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "markdown": {
-          "description": "All excerpts rendered as one Markdown document with a `Source:` line each.",
-          "type": "string"
-        },
         "query": {
           "type": "string"
         },
@@ -431,8 +427,7 @@
         "fallback_used",
         "archives_searched",
         "warnings",
-        "elapsed_ms",
-        "markdown"
+        "elapsed_ms"
       ],
       "type": "object"
     },
@@ -1338,10 +1333,10 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "archives_searched": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "description": "Number of archives that were searched (see `list_archives` for names).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         },
         "elapsed_ms": {
           "format": "uint64",
@@ -1484,10 +1479,10 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "archives_searched": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "description": "Number of archives that were searched.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         },
         "elapsed_ms": {
           "format": "uint64",

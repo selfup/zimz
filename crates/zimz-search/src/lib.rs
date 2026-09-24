@@ -26,7 +26,7 @@ pub use article::{
     OutlineResponse,
 };
 pub use catalog::{ArchiveInfo, Mode};
-pub use context::{ContextRequest, ContextResponse, Excerpt};
+pub use context::{ContextRequest, ContextResponse, Excerpt, render_markdown};
 pub use error::{Error, Result};
 pub use health::{ArchiveHealth, CacheStats, HealthRequest, HealthResponse, Verify};
 pub use library::{

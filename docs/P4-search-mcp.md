@@ -13,7 +13,7 @@ library; an MCP server on stdio exposes it to AI agents with eight read-only too
 | `search` | Per archive: full-text AND via `zimz-glass` (top `depth` = page end, 10..500), or the title index (`suggest`), or a prefix scan of the title listing (as typed, then capitalised) when the archive has no Xapian index at all. Fusion in `fusion`: reciprocal rank fusion (k = 60) weighted by the archive priority, plus boosts in rank-1 units: +1.0 exact title match, +0.5 all query stems in the title, +0.75 × match strength (raw BM25 relative to the strongest hit of the whole federation; half-strength scaled by in-archive percent for title-index hits, 0.25 for listing hits). The strength term is what keeps a weak rank-1 hit from a 1-hit archive from tying with Wikipedia's rank-1. OR fallback when AND fills less than a page (multi-word queries, full-text archives only): OR-only hits are appended after all AND hits, scored below them, flagged `partial`. Scores are normalised to the best hit = 1.0. Cursor = hash(query, archives, mode, flags) + offset, validated. Snippets only for the page: best window of the extracted text with `**term**` marks, never longer than `snippet_chars`. Titles on the page come from the directory (the index stores lowercased copies in newer mwoffliner archives). |
 | `suggest` | Same federation over the title indexes (listing prefix scan as fallback), exact-title boost, `limit` ≤ 50. |
 | `article` | `read_article`: Markdown, text or raw HTML window of `max_chars` characters from `offset`, with the outline whenever the article was cut, or one `section` by index/title prefix; `outline`; `links` (anchor text, canonical target path, title, existence). |
-| `context` | Search (2 × `max_hits`, no snippets), extract every hit in parallel from at most `max_snippet_source_bytes` (4 MiB; Gutenberg books are 20 MB+), choose the best excerpt among the lead and each section (most distinct terms, then most specific section, then earliest), pack in rank order under `budget_chars` (an excerpt is trimmed at a word boundary if ≥ 200 chars remain, else packing stops). Each excerpt cites `zim://archive/path#Section`. `markdown` holds the packed rendering. |
+| `context` | Search (2 × `max_hits`, no snippets), extract every hit in parallel from at most `max_snippet_source_bytes` (4 MiB; Gutenberg books are 20 MB+), choose the best excerpt among the lead and each section (most distinct terms, then most specific section, then earliest), pack in rank order under `budget_chars` (an excerpt is trimmed at a word boundary if ≥ 200 chars remain, else packing stops). Each excerpt cites `zim://archive/path#Section`. `render_markdown` builds the packed text rendering. |
 | `health` | Index presence and coverage (`fulltext_docs / article_count`), open time, cluster and extract cache statistics, scan failures; `verify: quick` runs the structural checks, `full` adds the MD5 and every cluster (opt-in: minutes on Wikipedia). |
 
 All request/response types are `serde` data with doc comments; the `schema` feature adds
@@ -75,6 +75,11 @@ Claude Code: `claude mcp add zimz -- zimz mcp --zim-dir ~/zims` (or the same com
 - The `zimz mcp` binary driven with raw JSON-RPC (initialize → tools/list → context →
   search → read_article error → resources): all responses correct, 0.65 s for the whole
   session including the scan.
+- Claude Code (`claude mcp add zimz -- zimz mcp --zim-dir ~/zims`, then `claude -p` with
+  the `mcp__zimz__*` tools allowed) answered "what does `git rebase --onto` do" from the
+  ManKier and DevDocs archives (one `context` call, then `read_article` on sections, 9
+  turns, 39 s) and "who created Rust and when was 1.0 released" from Wikipedia (one
+  `context` call, 3 turns, 15 s), both with `zim://` citations and correct facts.
 
 ## Measured (M-series laptop, release, warm page cache, 51 archives / 181 GB in `~/zims`)
 
@@ -119,7 +124,9 @@ under the cache budgets plus mmap page-cache noise.
   and capitalised; no stemming, no body text.
 - Snippets and context excerpts read at most 4 MiB of an item; a match deep inside a
   larger Gutenberg book gets a snippet from its beginning.
-- `structuredContent` and the text block both go on the wire (spec recommendation), so a
-  `read_article` response is roughly twice its `max_chars`.
+- `structuredContent` and the text block both go on the wire (spec recommendation).
+  Claude Code hands the model the structured JSON and drops the text block, so the
+  structured responses carry no rendered duplicates (excerpt Markdown is rebuilt with
+  `render_markdown` for the text block only) and archive lists are reported as counts.
 - stdio only; no watch/reload when files change (restart the server).
 - Single-word suggestions on Wikipedia remain 75–250 ms (P2 limit).

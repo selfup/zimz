@@ -186,7 +186,7 @@ fn fulltext_search_ranks_exact_title_first_and_snippets() {
     assert!(res.total_estimate > 400, "{}", res.total_estimate);
     assert_eq!(res.hits.len(), 10);
     assert!(!res.fallback_used);
-    assert_eq!(res.archives_searched, vec![CLIMATE.to_string()]);
+    assert_eq!(res.archives_searched, 1);
     let top = &res.hits[0];
     assert_eq!(
         top.title, "Greenhouse gas emissions",
@@ -221,7 +221,7 @@ fn search_without_snippets_is_cheap_and_searches_everything() {
     let mut req = SearchRequest::new("methane");
     req.snippet_chars = 0;
     let res = f.library.search(&req).unwrap();
-    assert_eq!(res.archives_searched.len(), 5);
+    assert_eq!(res.archives_searched, 5);
     assert!(res.hits.iter().all(|h| h.snippet.is_none()));
     assert!(res.hits.iter().all(|h| h.archive == CLIMATE));
     assert!(res.hits[0].title.to_lowercase().contains("methane"));
@@ -359,7 +359,7 @@ fn suggestions_are_federated_and_exact_titles_first() {
             .iter()
             .all(|s| s.title.to_lowercase().contains("carbon"))
     );
-    assert_eq!(res.archives_searched.len(), 5);
+    assert_eq!(res.archives_searched, 5);
 
     let res = f
         .library
@@ -464,7 +464,10 @@ fn read_article_windows_sections_and_path_forms() {
     let by_title = lib.read_article(&s).unwrap();
     assert_eq!(by_title.content, by_index.content);
     s.section = Some("no such heading".into());
-    assert!(matches!(lib.read_article(&s), Err(Error::Invalid(_))));
+    match lib.read_article(&s) {
+        Err(Error::Invalid(msg)) => assert!(msg.contains("0=\"Carbon dioxide\""), "{msg}"),
+        other => panic!("expected an Invalid error, got {other:?}"),
+    }
 
     // Path forms: bare, URI, title with spaces, percent-encoded, redirect.
     for p in [
@@ -558,11 +561,9 @@ fn context_packs_excerpts_under_budget_with_citations() {
         r.excerpts[0].title,
         "Greenhouse gas emissions from agriculture"
     );
-    assert!(r.markdown.contains("Source: zim://"));
-    assert!(
-        r.markdown
-            .contains("## Greenhouse gas emissions from agriculture")
-    );
+    let md = zimz_search::render_markdown(&r);
+    assert!(md.contains("Source: zim://"));
+    assert!(md.contains("## Greenhouse gas emissions from agriculture"));
     // A section-level citation carries the heading as a fragment.
     if let Some(e) = r.excerpts.iter().find(|e| e.section.is_some()) {
         assert!(e.uri.contains('#'));
