@@ -62,7 +62,8 @@ Non-goals (for now)
 - Serving kiwix-serve's HTTP API or UI. Decision: MCP + CLI only.
 - Tier-2 built indexes (tantivy) and semantic/hybrid search: designed in 6.5 and section 7
   but deferred. Glass only for now.
-- Streamable HTTP MCP transport: stdio only for now.
+- Public HTTP exposure: the streamable HTTP transport (added 2026-09-24) is for local
+  and LAN use with a bearer token, not the open internet (no TLS, no OAuth).
 - Video/image understanding. PDF text extraction is optional later work.
 
 ---
@@ -587,8 +588,8 @@ phrase search become a priority.
   its own stemmer.
 
 ### 6.7 `zimz-mcp` — tools, resources, transports
-Transport: stdio only for now; rmcp's streamable HTTP can be added behind a flag later
-without changing the tool surface. All tools
+Transport: stdio, or streamable HTTP with `--http [ADDR]` (bearer token, required for a
+non-loopback bind; stateless JSON responses; `GET /healthz`), same tool surface. All tools
 `readOnlyHint: true`, `idempotentHint: true`, with `outputSchema` + `structuredContent`
 and a text rendering for older clients.
 
@@ -675,7 +676,7 @@ tantivy build/query per 6.5, auto tier selection, `zimz index`. Acceptance: devd
 across mixed tiers.
 
 **Later, not scheduled**
-- Streamable HTTP MCP transport (with a bearer token) for remote agents.
+- ~~Streamable HTTP MCP transport (with a bearer token)~~ done for local/LAN (2026-09-24); TLS/OAuth for public exposure not planned.
 - Hybrid ranking: `fastembed` (e.g. bge-small) over extracted sections + `usearch`, fused
   with BM25 by RRF; opt-in per archive because of build cost.
 - Spelling correction (symspell over the title index terms), query-time synonym expansion.
@@ -732,13 +733,17 @@ mcp 1k, cli 0.8k ≈ 11k LOC plus tests (tier 2 would add ~1.5k).
 | License | **GPL-3.0-only**, copyright Regis Boudinot (`LICENSE` at repo root) |
 | Surface | **MCP + CLI only**; no kiwix-serve-compatible HTTP endpoint |
 | Search tiers | **Glass (embedded Xapian) only for now**; tier 2 (tantivy) and semantic search deferred |
-| MCP transport | **stdio only for now**; streamable HTTP later if needed |
+| MCP transport | **stdio**, plus streamable HTTP for local/LAN with a bearer token (added 2026-09-24) |
 
 Scheduled phases are therefore P0–P4 (bootstrap, core reader, glass reader, extraction,
 search + MCP). P5 and the "later" list stay in the plan as designed but unscheduled work.
 
 Status: P0–P1 done (`docs/P1-core-reader.md`), P2 done (`docs/P2-glass-reader.md`),
-P3 done (`docs/P3-extract.md`), P4 done (`docs/P4-search-mcp.md`).
+P3 done (`docs/P3-extract.md`), P4 done (`docs/P4-search-mcp.md`), plus the streamable
+HTTP transport and quoted-phrase search on the glass tier (verified in extracted text,
+the approximation described in 6.6). Tantivy (P5) stays deferred: the embedded indexes
+cover every HTML page of the wiki-style archives, and semantic retrieval is planned as a
+separate system built on zimz's section-level `zim://` citations.
 
 ---
 

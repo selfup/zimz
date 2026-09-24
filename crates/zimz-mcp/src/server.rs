@@ -27,13 +27,17 @@ use crate::render;
 /// Shown to the client at `initialize`; tells the agent how to use the tools.
 pub const INSTRUCTIONS: &str = "zimz serves offline ZIM archives (Wikipedia, DevDocs, Gutenberg, \
 LibreTexts, ...). Start with `context` for a question: it searches every archive and returns \
-the most relevant excerpts with `zim://archive/path` citations, packed under a character \
-budget. Use `search` when you want a ranked list to choose from, then `read_article` with the \
-hit's `archive` and `path` (it never returns more than `max_chars`; when cut it includes the \
-outline so you can ask for one `section`, or continue from `next_offset`). `suggest` completes \
-titles, `links` lists where an article points, `list_archives` shows what is available and \
-`archive_health` diagnoses indexes and caches. Restrict `archives` to relevant names or globs \
-(e.g. `devdocs_*`) to save time. Cite sources by their `zim://` URI.";
+the most relevant excerpts with `zim://archive/path#Section` citations, packed under a \
+character budget. Use `search` when you want a ranked list to choose from: words are ANDed \
+and stemmed, a \"quoted phrase\" must appear in that order in the article, hits flagged \
+`partial` matched only some words (added when the strict search fell short), and \
+`next_cursor` fetches the next page. Then `read_article` with the hit's `archive` and `path` \
+(a title or `zim://` URI also works); it never returns more than `max_chars`, and when cut it \
+includes the outline so you can ask for one `section` or continue from `next_offset`. \
+`suggest` completes titles, `outline` and `links` help you navigate an article, \
+`list_archives` shows what is available and `archive_health` diagnoses indexes and caches. \
+Restrict `archives` to relevant names or globs (e.g. `devdocs_*`) to save time. Cite sources \
+by their `zim://` URI.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListArchivesParams {
@@ -59,10 +63,27 @@ pub struct EntryParams {
     pub path: String,
 }
 
+/// Per-transport policy.
+#[derive(Debug, Clone)]
+pub struct ServerOptions {
+    /// Allow `archive_health` with `verify: full` (reads whole archives; minutes on
+    /// Wikipedia). On by default for stdio, off for HTTP.
+    pub allow_full_verify: bool,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self {
+            allow_full_verify: true,
+        }
+    }
+}
+
 /// An MCP server over one [`Library`]. Cheap to clone (shares the library).
 #[derive(Clone)]
 pub struct ZimServer {
     library: Arc<Library>,
+    options: ServerOptions,
     tool_router: ToolRouter<Self>,
 }
 
@@ -97,10 +118,19 @@ fn respond<T: Serialize>(
 
 impl ZimServer {
     pub fn new(library: Arc<Library>) -> Self {
+        Self::with_options(library, ServerOptions::default())
+    }
+
+    pub fn with_options(library: Arc<Library>, options: ServerOptions) -> Self {
         Self {
             library,
+            options,
             tool_router: Self::tool_router(),
         }
+    }
+
+    pub fn options(&self) -> &ServerOptions {
+        &self.options
     }
 
     pub fn library(&self) -> &Arc<Library> {
@@ -148,7 +178,7 @@ impl ZimServer {
 
     #[tool(
         name = "search",
-        description = "Full-text search across the selected archives (all by default). Terms are ANDed and stemmed per archive language; rankings are fused across archives and exact title matches are boosted. When AND matches fewer than a page, OR matches are appended and flagged `partial`. Returns paths for `read_article`, snippets and a `next_cursor`.",
+        description = "Full-text search across the selected archives (all by default). Terms are ANDed and stemmed per archive language; quote a phrase (\"borrow checker\") to require the exact word order, verified in the article text. Rankings are fused across archives and exact title matches are boosted. When AND matches fewer than a page, OR matches are appended and flagged `partial`. Returns paths for `read_article`, snippets and a `next_cursor`.",
         annotations(title = "Search archives", read_only_hint = true, idempotent_hint = true, open_world_hint = false),
         output_schema = schema_for_output::<zimz_search::SearchResponse>()
     )]
@@ -242,6 +272,11 @@ impl ZimServer {
         &self,
         Parameters(req): Parameters<HealthRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if req.verify == zimz_search::Verify::Full && !self.options.allow_full_verify {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "error: `verify: full` is disabled on this transport (it reads whole archives); use `verify: quick`",
+            )]));
+        }
         let r = self.blocking(move |lib| lib.health(&req)).await?;
         respond(r, render::health)
     }

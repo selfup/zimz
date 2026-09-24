@@ -6,13 +6,15 @@
 //! stdio transport is wired up; the tool surface is transport-agnostic.
 #![allow(clippy::doc_markdown)]
 
+pub mod http;
 pub mod render;
 pub mod server;
 
 use std::sync::Arc;
 
+pub use http::HttpOptions;
 use rmcp::ServiceExt;
-pub use server::{INSTRUCTIONS, ZimServer};
+pub use server::{INSTRUCTIONS, ServerOptions, ZimServer};
 use zimz_search::Library;
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -30,6 +32,23 @@ pub fn init_logging() {
         .with_ansi(false)
         .with_target(false)
         .try_init();
+}
+
+/// Serve `library` over streamable HTTP until Ctrl-C. Full archive verification is
+/// disabled on this transport (it reads whole archives on request).
+pub fn run_http(library: Library, opts: &HttpOptions) -> Result<(), BoxError> {
+    let server = ZimServer::with_options(
+        Arc::new(library),
+        ServerOptions {
+            allow_full_verify: false,
+        },
+    );
+    tracing::info!(
+        archives = server.library().len(),
+        failures = server.library().failures().len(),
+        "library scanned"
+    );
+    http::run(server, opts)
 }
 
 /// Serve `library` on stdin/stdout until the client disconnects.

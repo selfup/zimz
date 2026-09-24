@@ -147,10 +147,23 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Serve the library to AI agents over MCP on stdin/stdout
+    /// Serve the library to AI agents over MCP (stdio by default, or HTTP with --http)
     Mcp {
         #[command(flatten)]
         lib: LibraryArgs,
+        /// Serve streamable HTTP at ADDR instead of stdio (default 127.0.0.1:8765;
+        /// bind 0.0.0.0:8765 for the LAN, which requires --token)
+        #[arg(long, value_name = "ADDR", num_args = 0..=1, default_missing_value = "127.0.0.1:8765")]
+        http: Option<std::net::SocketAddr>,
+        /// Bearer token HTTP clients must send (`Authorization: Bearer …`)
+        #[arg(long, env = "ZIMZ_TOKEN", hide_env_values = true)]
+        token: Option<String>,
+        /// Extra Host header values to accept over HTTP (repeatable)
+        #[arg(long = "allowed-host", value_name = "HOST")]
+        allowed_hosts: Vec<String>,
+        /// Browser origins allowed to call the HTTP endpoint (repeatable)
+        #[arg(long = "allowed-origin", value_name = "ORIGIN")]
+        allowed_origins: Vec<String>,
     },
     /// Write an embedded Xapian index blob to a file
     DumpIndex {
@@ -293,13 +306,7 @@ fn main() -> anyhow::Result<()> {
             limit,
             json,
             time,
-        } => {
-            if zim.is_dir() {
-                library_suggest(&zim, &prefix, limit, json, time)
-            } else {
-                suggest_cmd(&zim, &prefix, limit, time)
-            }
-        }
+        } => suggest_any(&zim, &prefix, limit, json, time),
         Cmd::Context {
             zim,
             query,
@@ -310,10 +317,21 @@ fn main() -> anyhow::Result<()> {
             json,
         } => context_cmd(&zim, &query, budget, per_hit, max_hits, archives, json),
         Cmd::Archives { lib, filter, json } => archives_cmd(&lib, filter.as_deref(), json),
-        Cmd::Mcp { lib } => {
-            zimz_mcp::init_logging();
-            let library = lib.open()?;
-            zimz_mcp::run_stdio(library).map_err(|e| anyhow::anyhow!("{e}"))
+        Cmd::Mcp {
+            lib,
+            http,
+            token,
+            allowed_hosts,
+            allowed_origins,
+        } => {
+            let opts = http.map(|bind| zimz_mcp::HttpOptions {
+                bind,
+                token,
+                allowed_hosts,
+                allowed_origins,
+                ..zimz_mcp::HttpOptions::default()
+            });
+            mcp_cmd(&lib, opts.as_ref())
         }
         Cmd::Extract {
             zim,
@@ -771,6 +789,30 @@ fn dump_index(path: &PathBuf, kind: &str, output: &PathBuf) -> anyhow::Result<()
     }
     println!("wrote {} bytes to {}", da.len, output.display());
     Ok(())
+}
+
+fn suggest_any(
+    zim: &Path,
+    prefix: &str,
+    limit: usize,
+    json: bool,
+    time: bool,
+) -> anyhow::Result<()> {
+    if zim.is_dir() {
+        library_suggest(zim, prefix, limit, json, time)
+    } else {
+        suggest_cmd(&zim.to_path_buf(), prefix, limit, time)
+    }
+}
+
+fn mcp_cmd(lib: &LibraryArgs, http: Option<&zimz_mcp::HttpOptions>) -> anyhow::Result<()> {
+    zimz_mcp::init_logging();
+    let library = lib.open()?;
+    match http {
+        Some(opts) => zimz_mcp::run_http(library, opts),
+        None => zimz_mcp::run_stdio(library),
+    }
+    .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 fn print_response<T: serde::Serialize>(

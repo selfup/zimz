@@ -288,6 +288,67 @@ fn or_fallback_marks_partial_hits() {
 }
 
 #[test]
+fn quoted_phrases_are_verified_in_the_text() {
+    let f = lib();
+    // Plain AND finds articles mentioning all three words anywhere; the phrase requires
+    // them adjacent and in order (punctuation ignored, like Xapian positions), which
+    // "removal dioxide carbon" never is.
+    let mut and = SearchRequest::new("removal dioxide carbon");
+    and.snippet_chars = 0;
+    assert!(!f.library.search(&and).unwrap().hits.is_empty());
+    let mut reversed = SearchRequest::new("\"removal dioxide carbon\"");
+    reversed.snippet_chars = 0;
+    let res = f.library.search(&reversed).unwrap();
+    assert!(res.hits.is_empty(), "{:?}", res.hits);
+    assert_eq!(res.phrases, vec!["removal dioxide carbon"]);
+    // The budget warning appears exactly when candidates were left unexamined.
+    assert_eq!(
+        res.next_cursor.is_some(),
+        res.warnings.iter().any(|w| w.contains("phrase check")),
+        "{:?}",
+        res.warnings
+    );
+
+    let mut req = SearchRequest::new("\"carbon dioxide removal\"");
+    req.limit = 5;
+    let res = f.library.search(&req).unwrap();
+    assert_eq!(res.phrases, vec!["carbon dioxide removal"]);
+    assert_eq!(res.hits.len(), 5);
+    assert_eq!(res.hits[0].title, "Carbon dioxide removal");
+    for h in &res.hits {
+        let mut a = article(CLIMATE, &h.path);
+        a.format = Format::Text;
+        a.max_chars = 1 << 22;
+        let text = f.library.read_article(&a).unwrap().content.to_lowercase();
+        let title = h.title.to_lowercase();
+        assert!(
+            text.contains("carbon dioxide removal") || title.contains("carbon dioxide removal"),
+            "{} lacks the phrase",
+            h.path
+        );
+    }
+    // Pagination keeps verifying from where the previous page stopped.
+    let cursor = res.next_cursor.clone().expect("more");
+    req.cursor = Some(cursor);
+    let page2 = f.library.search(&req).unwrap();
+    assert!(!page2.hits.is_empty());
+    let p1: Vec<&str> = res.hits.iter().map(|h| h.path.as_str()).collect();
+    assert!(page2.hits.iter().all(|h| !p1.contains(&h.path.as_str())));
+    assert!(page2.hits[0].rank > 5);
+    // Curly quotes and mixed plain terms work too, and context inherits phrases.
+    let mut mixed = SearchRequest::new("\u{201c}greenhouse gas\u{201d} agriculture");
+    mixed.snippet_chars = 0;
+    let res = f.library.search(&mixed).unwrap();
+    assert_eq!(res.phrases, vec!["greenhouse gas"]);
+    assert!(!res.hits.is_empty());
+    let ctx = f
+        .library
+        .context(&ContextRequest::new("\"greenhouse gas emissions\""))
+        .unwrap();
+    assert!(!ctx.excerpts.is_empty());
+}
+
+#[test]
 fn min_score_filters_and_empty_query_is_rejected() {
     let f = lib();
     let mut req = SearchRequest::new("carbon");
@@ -602,6 +663,8 @@ fn health_reports_indexes_caches_and_failures() {
         "{:?}",
         c.fulltext_coverage
     );
+    assert!(c.fulltext_coverage.unwrap() <= 1.0);
+    assert!(lib.get(CLIMATE).unwrap().info.html_count.unwrap() > 3000);
     assert!(c.open_ms >= 0.0);
     // Reading an article twice hits the extract cache.
     lib.read_article(&article(CLIMATE, "Carbon_dioxide"))

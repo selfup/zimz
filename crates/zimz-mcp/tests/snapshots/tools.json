@@ -61,7 +61,7 @@
               "type": "string"
             },
             "fulltext_coverage": {
-              "description": "`fulltext_docs / article_count`; well below 1.0 means many articles are not\nsearchable by body text (typical for app-style archives).",
+              "description": "`fulltext_docs / html_count` (or `/ article_count` when the archive has no\n`Counter` metadata); well below 1.0 means many pages are not searchable by\nbody text (typical for app-style archives and book collections).",
               "format": "double",
               "type": [
                 "number",
@@ -641,6 +641,15 @@
             "has_title_index": {
               "type": "boolean"
             },
+            "html_count": {
+              "description": "HTML items (from the `Counter` metadata): the pages a full-text index can\ncover. `article_count` also counts redirects.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "language": {
               "description": "ISO 639-3 code(s), e.g. `eng` or `fra,eng`.",
               "type": [
@@ -1156,7 +1165,7 @@
   },
   {
     "name": "search",
-    "description": "Full-text search across the selected archives (all by default). Terms are ANDed and stemmed per archive language; rankings are fused across archives and exact title matches are boosted. When AND matches fewer than a page, OR matches are appended and flagged `partial`. Returns paths for `read_article`, snippets and a `next_cursor`.",
+    "description": "Full-text search across the selected archives (all by default). Terms are ANDed and stemmed per archive language; quote a phrase (\"borrow checker\") to require the exact word order, verified in the article text. Rankings are fused across archives and exact title matches are boosted. When AND matches fewer than a page, OR matches are appended and flagged `partial`. Returns paths for `read_article`, snippets and a `next_cursor`.",
     "inputSchema": {
       "$defs": {
         "ModeSelect": {
@@ -1222,6 +1231,7 @@
           "type": "boolean"
         },
         "query": {
+          "description": "Words to search for (all must match). Quote a phrase (`\"borrow checker\"`) to\nrequire those words in that order; phrases are verified in the article text.",
           "type": "string"
         },
         "snippet_chars": {
@@ -1360,6 +1370,13 @@
             "null"
           ]
         },
+        "phrases": {
+          "description": "Quoted phrases that every hit was verified to contain.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "query": {
           "type": "string"
         },
@@ -1381,6 +1398,7 @@
         "query",
         "hits",
         "total_estimate",
+        "phrases",
         "fallback_used",
         "archives_searched",
         "warnings",

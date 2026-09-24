@@ -53,8 +53,9 @@ pub struct ArchiveHealth {
     pub article_count: u32,
     pub has_fulltext_index: bool,
     pub fulltext_docs: Option<u32>,
-    /// `fulltext_docs / article_count`; well below 1.0 means many articles are not
-    /// searchable by body text (typical for app-style archives).
+    /// `fulltext_docs / html_count` (or `/ article_count` when the archive has no
+    /// `Counter` metadata); well below 1.0 means many pages are not searchable by
+    /// body text (typical for app-style archives and book collections).
     pub fulltext_coverage: Option<f64>,
     pub has_title_index: bool,
     pub title_docs: Option<u32>,
@@ -121,9 +122,11 @@ impl Library {
                 }
             }
             let (hits, misses) = archive.cluster_cache_stats();
-            let coverage = info.fulltext_docs.and_then(|d| {
-                (info.article_count > 0).then(|| f64::from(d) / f64::from(info.article_count))
-            });
+            let denominator = info.html_count.unwrap_or(u64::from(info.article_count));
+            let coverage = info
+                .fulltext_docs
+                .filter(|_| denominator > 0)
+                .map(|d| (f64::from(d) / denominator as f64).min(1.0));
             archives.push(ArchiveHealth {
                 name: info.name.clone(),
                 file: info.file.clone(),

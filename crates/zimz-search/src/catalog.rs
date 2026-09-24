@@ -71,6 +71,9 @@ pub struct ArchiveInfo {
     pub article_count: u32,
     /// Images, video and audio entries (from the `Counter` metadata).
     pub media_count: u64,
+    /// HTML items (from the `Counter` metadata): the pages a full-text index can
+    /// cover. `article_count` also counts redirects.
+    pub html_count: Option<u64>,
     pub has_fulltext_index: bool,
     pub has_title_index: bool,
     /// Documents in the full-text index, when there is one.
@@ -96,6 +99,15 @@ fn meta(archive: &Archive, key: &str) -> Option<String> {
         .flatten()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+fn html_count(counter: &[(String, u64)]) -> Option<u64> {
+    let n: u64 = counter
+        .iter()
+        .filter(|(m, _)| m.starts_with("text/html"))
+        .map(|(_, n)| *n)
+        .sum();
+    (n > 0).then_some(n)
 }
 
 fn media_count(counter: &[(String, u64)]) -> u64 {
@@ -152,6 +164,7 @@ impl ArchiveInfo {
             entry_count: header.entry_count,
             article_count: archive.article_count()?,
             media_count: media_count(&counter),
+            html_count: html_count(&counter),
             has_fulltext_index,
             has_title_index,
             fulltext_docs: None,
@@ -237,8 +250,11 @@ mod tests {
         let c = vec![
             ("image/png".to_string(), 3),
             ("text/html".to_string(), 10),
+            ("text/html; charset=utf-8".to_string(), 2),
             ("video/webm".to_string(), 1),
         ];
         assert_eq!(media_count(&c), 4);
+        assert_eq!(html_count(&c), Some(12));
+        assert_eq!(html_count(&[]), None);
     }
 }

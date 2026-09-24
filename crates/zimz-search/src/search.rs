@@ -33,6 +33,8 @@ pub enum ModeSelect {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SearchRequest {
+    /// Words to search for (all must match). Quote a phrase (`"borrow checker"`) to
+    /// require those words in that order; phrases are verified in the article text.
     pub query: String,
     /// Archive names, uuids, file stems or globs; empty = every archive.
     #[serde(default)]
@@ -123,6 +125,8 @@ pub struct SearchResponse {
     pub total_estimate: u64,
     /// Pass back as `cursor` to get the next page; absent on the last page.
     pub next_cursor: Option<String>,
+    /// Quoted phrases that every hit was verified to contain.
+    pub phrases: Vec<String>,
     /// OR matches were appended because AND matched fewer than a page.
     pub fallback_used: bool,
     /// Number of archives that were searched (see `list_archives` for names).
@@ -153,6 +157,46 @@ pub(crate) struct ArchiveRun {
     pub mode: Mode,
     pub total: u64,
     pub candidates: Vec<Candidate>,
+}
+
+/// Split `"quoted phrases"` out of a query: the plain text (quotes removed, every word
+/// kept for the term query) and the phrases of two or more words. Straight and curly
+/// quotes are accepted; an unbalanced quote is ignored.
+pub(crate) fn split_phrases(text: &str) -> (String, Vec<String>) {
+    const QUOTES: [char; 4] = ['"', '\u{201c}', '\u{201d}', '\u{201e}'];
+    let mut phrases = Vec::new();
+    let mut plain = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(QUOTES) {
+        plain.push_str(&rest[..start]);
+        let after = &rest[start + rest[start..].chars().next().map_or(1, char::len_utf8)..];
+        let Some(end) = after.find(QUOTES) else {
+            plain.push(' ');
+            plain.push_str(after);
+            rest = "";
+            break;
+        };
+        let phrase = after[..end].trim();
+        if !phrase.is_empty() {
+            plain.push(' ');
+            plain.push_str(phrase);
+            plain.push(' ');
+            if phrase.split_whitespace().count() >= 2 {
+                phrases.push(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
+            }
+        }
+        rest = &after[end + after[end..].chars().next().map_or(1, char::len_utf8)..];
+    }
+    plain.push_str(rest);
+    (
+        plain.split_whitespace().collect::<Vec<_>>().join(" "),
+        phrases,
+    )
+}
+
+/// Does the stem sequence `tokens` contain `phrase` as consecutive stems?
+pub(crate) fn contains_phrase(tokens: &[String], phrase: &[String]) -> bool {
+    phrase.is_empty() || tokens.windows(phrase.len()).any(|w| w == phrase)
 }
 
 /// Collapse whitespace, lowercase, strip accents: the key used for exact title matches.
@@ -412,7 +456,8 @@ impl Library {
     #[allow(clippy::too_many_lines)]
     pub fn search(&self, req: &SearchRequest) -> Result<SearchResponse> {
         let t0 = Instant::now();
-        let query = req.query.trim();
+        let (plain, phrases) = split_phrases(req.query.trim());
+        let query = plain.as_str();
         if query.is_empty() {
             return Err(Error::Invalid("query is empty".into()));
         }
@@ -533,12 +578,26 @@ impl Library {
             ranked.retain(|r| r.score >= min);
         }
 
-        let page_end = (offset + limit).min(ranked.len());
-        let next_cursor = (ranked.len() > page_end).then(|| encode_cursor(hash, page_end));
-        let page: Vec<&Ranked> = ranked
-            .get(offset..page_end)
-            .map(|s| s.iter().collect())
-            .unwrap_or_default();
+        // The cursor offset indexes the fused list; with phrases, a page holds the
+        // verified candidates found from that offset on.
+        let (page, next_offset) = if phrases.is_empty() {
+            let end = (offset + limit).min(ranked.len());
+            let page: Vec<&Ranked> = ranked
+                .get(offset..end)
+                .map(|s| s.iter().collect())
+                .unwrap_or_default();
+            (page, (ranked.len() > end).then_some(end))
+        } else {
+            self.verified_page(
+                &ranked,
+                offset,
+                limit,
+                &phrases,
+                (&and_runs, &or_runs),
+                &mut warnings,
+            )
+        };
+        let next_cursor = next_offset.map(|o| encode_cursor(hash, o));
 
         let hits: Vec<SearchHit> = page
             .par_iter()
@@ -575,14 +634,80 @@ impl Library {
             .collect();
 
         Ok(SearchResponse {
-            query: query.to_string(),
+            query: req.query.trim().to_string(),
             hits,
             total_estimate,
             next_cursor,
+            phrases,
             fallback_used,
             archives_searched,
             warnings,
             elapsed_ms: t0.elapsed().as_millis() as u64,
+        })
+    }
+
+    /// Walk the fused list from `offset`, verifying candidates against the phrases in
+    /// parallel batches, until `limit` hits are found or the examination budget runs
+    /// out. Returns the page and the offset to continue from.
+    fn verified_page<'r>(
+        &self,
+        ranked: &'r [Ranked],
+        offset: usize,
+        limit: usize,
+        phrases: &[String],
+        (and_runs, or_runs): (&[ArchiveRun], &[ArchiveRun]),
+        warnings: &mut Vec<String>,
+    ) -> (Vec<&'r Ranked>, Option<usize>) {
+        let max_examine = (limit * 10).clamp(20, 200);
+        let mut page = Vec::new();
+        let mut pos = offset.min(ranked.len());
+        let mut examined = 0usize;
+        while page.len() < limit && pos < ranked.len() && examined < max_examine {
+            let batch_end = (pos + 2 * limit)
+                .min(ranked.len())
+                .min(pos + (max_examine - examined));
+            let verdicts: Vec<bool> = ranked[pos..batch_end]
+                .par_iter()
+                .map(|r| {
+                    let runs = if r.partial { or_runs } else { and_runs };
+                    let run = &runs[r.run];
+                    self.phrase_hit(run.slot, &run.candidates[r.idx].path, phrases)
+                })
+                .collect();
+            for (r, ok) in ranked[pos..batch_end].iter().zip(verdicts) {
+                pos += 1;
+                examined += 1;
+                if ok {
+                    page.push(r);
+                    if page.len() == limit {
+                        break;
+                    }
+                }
+            }
+        }
+        if page.len() < limit && pos < ranked.len() {
+            warnings.push(format!(
+                "phrase check stopped after {examined} candidates; pass the cursor to continue"
+            ));
+        }
+        (page, (pos < ranked.len()).then_some(pos))
+    }
+
+    /// Does the article at `path` contain every phrase (as consecutive stems, in its
+    /// title or text)? Unreadable articles do not qualify.
+    pub(crate) fn phrase_hit(&self, slot_idx: usize, path: &str, phrases: &[String]) -> bool {
+        let slot = &self.slots()[slot_idx];
+        let Ok(resolved) = slot.resolve_entry(path) else {
+            return false;
+        };
+        let Ok(doc) = self.document_for_snippet(slot_idx, &resolved.dirent) else {
+            return false;
+        };
+        let analyzer = slot.analyzer();
+        let tokens = analyzer.terms(&format!("{}\n{}", doc.title, doc.text));
+        phrases.iter().all(|p| {
+            let stems = analyzer.terms(p);
+            contains_phrase(&tokens, &stems)
         })
     }
 
@@ -652,6 +777,35 @@ mod tests {
         assert!((title_boost(&an, &q, &stems, "Carbon dioxide removal") - 0.5).abs() < 1e-9);
         assert!((title_boost(&an, &q, &stems, "Methane") - 0.0).abs() < 1e-9);
         assert!((title_boost(&an, "", &[], "Methane") - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn phrases_are_split_and_kept_in_the_term_query() {
+        let (plain, phrases) = split_phrases(r#"rust "borrow checker" lifetimes"#);
+        assert_eq!(plain, "rust borrow checker lifetimes");
+        assert_eq!(phrases, vec!["borrow checker"]);
+        let (plain, phrases) = split_phrases("\u{201c}carbon  dioxide\u{201d} \"x\"");
+        assert_eq!(plain, "carbon dioxide x");
+        assert_eq!(
+            phrases,
+            vec!["carbon dioxide"],
+            "single-word quotes are plain terms"
+        );
+        let (plain, phrases) = split_phrases(r#"unbalanced "quote here"#);
+        assert_eq!(plain, "unbalanced quote here");
+        assert!(phrases.is_empty());
+        let (plain, phrases) = split_phrases("\"\" empty");
+        assert_eq!(plain, "empty");
+        assert!(phrases.is_empty());
+    }
+
+    #[test]
+    fn phrase_containment_is_consecutive() {
+        let t = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
+        assert!(contains_phrase(&t("a b c d"), &t("b c")));
+        assert!(!contains_phrase(&t("a b x c"), &t("b c")));
+        assert!(!contains_phrase(&t("b"), &t("b c")));
+        assert!(contains_phrase(&t("a"), &[]));
     }
 
     #[test]

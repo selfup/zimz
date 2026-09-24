@@ -12,6 +12,7 @@ library; an MCP server on stdio exposes it to AI agents with eight read-only too
 | `catalog` | `ArchiveInfo`: name, file, uuid, title, description, language, creator, publisher, date, flavour, scraper, tags, `_category`, size, entry/article/media counts, index presence and document counts, the search mode that will be used, priority, main page, ZIM version, adapter. |
 | `search` | Per archive: full-text AND via `zimz-glass` (top `depth` = page end, 10..500), or the title index (`suggest`), or a prefix scan of the title listing (as typed, then capitalised) when the archive has no Xapian index at all. Fusion in `fusion`: reciprocal rank fusion (k = 60) weighted by the archive priority, plus boosts in rank-1 units: +1.0 exact title match, +0.5 all query stems in the title, +0.75 × match strength (raw BM25 relative to the strongest hit of the whole federation; half-strength scaled by in-archive percent for title-index hits, 0.25 for listing hits). The strength term is what keeps a weak rank-1 hit from a 1-hit archive from tying with Wikipedia's rank-1. OR fallback when AND fills less than a page (multi-word queries, full-text archives only): OR-only hits are appended after all AND hits, scored below them, flagged `partial`. Scores are normalised to the best hit = 1.0. Cursor = hash(query, archives, mode, flags) + offset, validated. Snippets only for the page: best window of the extracted text with `**term**` marks, never longer than `snippet_chars`. Titles on the page come from the directory (the index stores lowercased copies in newer mwoffliner archives). |
 | `suggest` | Same federation over the title indexes (listing prefix scan as fallback), exact-title boost, `limit` ≤ 50. |
+| phrases | `"quoted phrases"` (straight or curly quotes) are split from the query; every word still goes into the stemmed AND query, and candidates are then verified to contain the phrase as consecutive stems in their title or extracted text. Verification walks the fused list from the cursor offset in parallel batches of 2 × `limit`, up to 10 × `limit` (20..200) candidates per call, and stops with a warning when the budget runs out; the cursor resumes from the last examined candidate. The embedded full-text index has no positions, so this is the plan's "AND + proximity" approximation of phrase search on the glass tier; CJK phrases work because the analyzer emits the same n-gram sequence for query and text. |
 | `article` | `read_article`: Markdown, text or raw HTML window of `max_chars` characters from `offset`, with the outline whenever the article was cut, or one `section` by index/title prefix; `outline`; `links` (anchor text, canonical target path, title, existence). |
 | `context` | Search (2 × `max_hits`, no snippets), extract every hit in parallel from at most `max_snippet_source_bytes` (4 MiB; Gutenberg books are 20 MB+), choose the best excerpt among the lead and each section (most distinct terms, then most specific section, then earliest), pack in rank order under `budget_chars` (an excerpt is trimmed at a word boundary if ≥ 200 chars remain, else packing stops). Each excerpt cites `zim://archive/path#Section`. `render_markdown` builds the packed text rendering. |
 | `health` | Index presence and coverage (`fulltext_docs / article_count`), open time, cluster and extract cache statistics, scan failures; `verify: quick` runs the structural checks, `full` adds the MD5 and every cluster (opt-in: minutes on Wikipedia). |
@@ -21,7 +22,12 @@ All request/response types are `serde` data with doc comments; the `schema` feat
 
 ## `zimz-mcp` (~700 lines incl. tests) and CLI
 
-rmcp 3.4 (`server`, `transport-io`, `macros`), stdio only. Tools, all
+rmcp 3.4 (`server`, `transport-io`, `transport-streamable-http-server`, `macros`); stdio, or
+streamable HTTP with `--http [ADDR]` (`http.rs`: axum router, stateless JSON responses, a
+bearer-token layer with constant-time comparison, open `GET /healthz`; a non-loopback
+bind is refused without a token, and with a token the `Host` allow-list is relaxed so
+LAN names work). `archive_health` `verify: full` is refused over HTTP (`ServerOptions`).
+Tools, all
 `readOnlyHint`/`idempotentHint` true, `openWorldHint` false, each with an `outputSchema`:
 
 | Tool | Notes |
@@ -67,6 +73,10 @@ Claude Code: `claude mcp add zimz -- zimz mcp --zim-dir ~/zims` (or the same com
   path form accepted by `read_article`, redirects, sections, HTML/text formats, links
   resolution, context budget and citations, health with quick and full verification, and
   serde defaults.
+- HTTP: 3 tests drive the axum router without a socket: open health endpoint, 401 with
+  `WWW-Authenticate` for missing or wrong tokens, an initialize → initialized →
+  `tools/call` exchange with plain-JSON responses (a quoted phrase query), the
+  full-verification refusal, and the loopback/LAN token rule.
 - `zimz-mcp`: 7 end-to-end tests through a real rmcp client over an in-memory pipe:
   initialize (capabilities, instructions), the complete annotated tool list with a JSON
   snapshot of every schema (`tests/snapshots/tools.json`, refresh with
@@ -75,6 +85,15 @@ Claude Code: `claude mcp add zimz -- zimz mcp --zim-dir ~/zims` (or the same com
 - The `zimz mcp` binary driven with raw JSON-RPC (initialize → tools/list → context →
   search → read_article error → resources): all responses correct, 0.65 s for the whole
   session including the scan.
+- HTTP against the full library: `zimz mcp --zim-dir ~/zims --http 127.0.0.1:8765` with a
+  token; `curl` gets `{"archives":51,"ok":true}` from `/healthz`, a 401 with
+  `WWW-Authenticate: Bearer` without the token, a plain-JSON `initialize` with it, and a
+  phrase search (`"greenhouse gas emissions" agriculture`) over 51 archives in 64 ms.
+  Registered with `claude mcp add --transport http … --header "Authorization: Bearer …"`,
+  Claude Code reported Connected and answered a `context` question through it (45 ms
+  server side). A phrase search through the stdio server (`"borrow checker"` over
+  `devdocs_*` and `wikipedia_*`) ranked Wikipedia's *Borrow checker* first and included a
+  DevDocs Rust error page, 70 ms over 23 archives.
 - Claude Code (`claude mcp add zimz -- zimz mcp --zim-dir ~/zims`, then `claude -p` with
   the `mcp__zimz__*` tools allowed) answered "what does `git rebase --onto` do" from the
   ManKier and DevDocs archives (one `context` call, then `read_article` on sections, 9
@@ -122,11 +141,15 @@ under the cache budgets plus mmap page-cache noise.
   `archives` or `--priority` to steer).
 - Listing mode (archives without any Xapian index) is a prefix scan of titles as typed
   and capitalised; no stemming, no body text.
+- Phrase search costs one extraction per examined candidate (cached afterwards), so a
+  rare phrase inside a common AND set can exhaust the 10 × `limit` budget; the response
+  says so and the cursor continues.
 - Snippets and context excerpts read at most 4 MiB of an item; a match deep inside a
   larger Gutenberg book gets a snippet from its beginning.
 - `structuredContent` and the text block both go on the wire (spec recommendation).
   Claude Code hands the model the structured JSON and drops the text block, so the
   structured responses carry no rendered duplicates (excerpt Markdown is rebuilt with
   `render_markdown` for the text block only) and archive lists are reported as counts.
-- stdio only; no watch/reload when files change (restart the server).
+- HTTP is plain HTTP with a shared bearer token: fine on a trusted LAN, not for the
+  public internet (no TLS, no OAuth). No watch/reload when files change (restart).
 - Single-word suggestions on Wikipedia remain 75–250 ms (P2 limit).
