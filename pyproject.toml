@@ -1,0 +1,14 @@
+# Python tooling for zimz (oracle scripts only; the product is Rust).
+# Usage: `uv run scripts/parity.py <file.zim> -o manifest.json` — uv creates .venv and
+# keeps uv.lock in sync; there is no requirements.txt.
+[project]
+name = "zimz-tools"
+version = "0.0.0"
+description = "Reference-implementation oracles for zimz (python-libzim comparisons)"
+requires-python = ">=3.11"
+dependencies = [
+    "libzim>=3.4",
+]
+
+[tool.uv]
+package = false

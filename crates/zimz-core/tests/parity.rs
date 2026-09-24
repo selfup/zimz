@@ -44,7 +44,18 @@ fn matches_python_libzim() {
         eprintln!("skipping: ZIMZ_PARITY_MANIFEST not set");
         return;
     };
-    let manifest: Manifest = serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
+    // cargo runs integration tests from the crate directory; accept paths relative to the
+    // workspace root too (as used by CI and the docs)
+    let mut path = std::path::PathBuf::from(&manifest);
+    if !path.exists() {
+        path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(&manifest);
+    }
+    let manifest: Manifest = serde_json::from_slice(
+        &std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+    )
+    .unwrap();
     let archive = Archive::open(&manifest.zim).unwrap();
     assert_eq!(archive.uuid(), manifest.uuid);
     assert_eq!(archive.entry_count(), manifest.all_entry_count);

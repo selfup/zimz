@@ -30,7 +30,7 @@ Scope: PLAN.md §6.2 / §7 P0–P1. Everything below was measured on this machin
 | `tests/synthetic.rs` | archives built by `tests/common/builder.rs` (validated against python-libzim): path lookup and insertion points, namespace ranges, redirect chains and loops, main page both ways, metadata/Counter/article count, both title-index kinds and no index, `entry_by_path_compat` and `entry_by_title` rules, direct access, zstd/xz/extended clusters with many small clusters, cache byte budget, decompression cap, huge dirents, empty titles, checksum corruption/truncation, one crafted corruption per integrity check, out-of-range requests, illustration fallback, split archives from temp files | 25 (+1 ignored writer) | 30 ms |
 | `tests/mutation.rs` | 600 random mutations (bit flips, truncation, zeroing, extreme field values, insertions, deletions) of each of 3 fixture flavours + new/old/zstd/extended/xz synthetic archives, full read path under `catch_unwind`; exhaustive single-bit flips of all 80 header bytes | 3 (≈5 000 corrupted archives) | 1 s |
 | `tests/proptests.rs` | proptest, 400 cases each: header/dirent/MIME parsers and whole archives on random bytes never panic; dirent and Counter round trips; builder→reader round trip with random entries, both schemes | 7 | 0.6 s |
-| `tests/parity.rs` (opt-in) | python-libzim manifest comparison | 13 archives so far | < 2 s each |
+| `tests/parity.rs` | python-libzim manifest comparison via `uv run scripts/parity.py`; CI runs it on three fixtures, locally on 13 real archives so far | 13 archives | < 2 s each |
 | `tests/local_library.rs` (opt-in) | every file in `ZIMZ_TEST_ZIM_DIR` | 51 files | 20 s |
 
 Total in CI: 95 tests, about 4 s wall on the C-codec build; the pure-codec build runs the

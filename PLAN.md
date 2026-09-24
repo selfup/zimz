@@ -530,8 +530,9 @@ Dev loop per CLAUDE.md: `cargo fmt`, `cargo check`, `cargo clippy --all-targets 
   exactly as 3.4, top-k heap, `percent` scaling like Xapian (100 × w/maxw).
 - `SuggestionIndex`: STEM_SOME analysis, last-term prefix expansion by cursor scan,
   anchored/ordered phrase via positions, `BM25(k1=0.001,b=1)`, collapse by `targetPath`.
-- Parity oracle: `python -m pip install libzim` (python-libzim wheels bundle libzim+Xapian) and
-  `brew install xapian` (`xapian-delve`, `quest`) on blobs extracted with `zimz dump-index`.
+- Parity oracle: python-libzim via `uv run scripts/parity.py` (the wheels bundle libzim+Xapian;
+  deps live in `pyproject.toml`/`uv.lock`) and `brew install xapian` (`xapian-delve`, `quest`)
+  on blobs extracted with `zimz dump-index`.
   Term-level tests (postlist for term X equals `xapian-delve -t`), ranking tests (top-k
   vs `zim::Searcher`), and tokenizer golden tests generated from Xapian.
 - Explicit scope guard: no write support, no honey backend, no remote DBs, no spelling/synonym
@@ -691,7 +692,7 @@ mcp 1k, cli 0.8k ≈ 11k LOC plus tests (tier 2 would add ~1.5k).
 
 - **Fixtures**: `openzim/zim-testing-suite` (small.zim, old-scheme and new-scheme samples,
   corrupted headers). Vendored via submodule or downloaded by a script into `fixtures/`.
-- **Oracles**: python-libzim (`pip install libzim`) for entries, search and suggestions;
+- **Oracles**: python-libzim (`uv run scripts/parity.py`, deps in `pyproject.toml`) for entries, search and suggestions;
   Xapian CLI (`brew install xapian`: `xapian-delve`, `quest`, `xapian-check`) on index blobs
   written out by `zimz dump-index`; optionally kiwix-serve in Docker
   (`ghcr.io/kiwix/kiwix-tools`) to spot-check ranking against `/search?format=xml`.

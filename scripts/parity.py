@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Produce a parity manifest for one ZIM using python-libzim (the reference reader).
 
-    pip install libzim
-    python3 scripts/parity.py ~/zims/foo.zim --count 1000 --seed 1 -o /tmp/foo.json
-    ZIMZ_PARITY_MANIFEST=/tmp/foo.json cargo test -p zimz-core --test parity -- --nocapture
+Run with uv from the repository root (deps come from pyproject.toml / uv.lock):
+
+    uv run scripts/parity.py ~/zims/foo.zim --count 1000 --seed 1 -o target/parity/foo.json
+    ZIMZ_PARITY_MANIFEST=target/parity/foo.json cargo test -p zimz-core --test parity -- --nocapture
+
+The manifest records, for ~N random entry indexes: path, title, redirect target, mimetype,
+size and MD5 of the content (size only for blobs over 64 MiB), plus metadata, the main
+page and a set of title lookups. `tests/parity.rs` reads the same indexes with zimz-core
+and asserts every field matches.
 """
-import argparse, hashlib, json, random, sys
+import argparse, hashlib, json, os, random
 from libzim.reader import Archive
 
 ap = argparse.ArgumentParser()
@@ -16,7 +22,9 @@ ap.add_argument("--title-lookups", type=int, default=50)
 ap.add_argument("-o", "--output", required=True)
 args = ap.parse_args()
 
-a = Archive(args.zim)
+# cargo runs integration tests from the crate directory, so store an absolute path
+zim_path = os.path.abspath(args.zim)
+a = Archive(zim_path)
 rng = random.Random(args.seed)
 n = a.all_entry_count
 indexes = sorted(set([0, n - 1] + [rng.randrange(n) for _ in range(args.count)]))
@@ -62,7 +70,7 @@ try:
 except Exception:
     pass
 
-json.dump({"zim": args.zim, "uuid": str(a.uuid), "all_entry_count": n, "main_path": main_path,
+json.dump({"zim": zim_path, "uuid": str(a.uuid), "all_entry_count": n, "main_path": main_path,
            "metadata": metadata, "entries": entries, "title_lookups": title_lookups},
           open(args.output, "w"))
-print(f"{args.zim}: {len(entries)} entries, {len(title_lookups)} title lookups -> {args.output}")
+print(f"{zim_path}: {len(entries)} entries, {len(title_lookups)} title lookups -> {args.output}")

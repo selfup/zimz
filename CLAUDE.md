@@ -22,3 +22,7 @@ This keeps the repo free of committed binaries and ensures all Go is run from so
 - **Never run destructive git commands** (`push --force`, `reset --hard`, `branch -D`, `clean -f`, `rebase`, etc.) under any circumstances
 - Only create commits when the user explicitly asks (`commit`, `commit and push`, etc.)
 - For any other git operation that mutates history or shared state, ask first
+
+## Pyhton
+
+Use uv to install deps, and run python code. uv only
