@@ -1,6 +1,6 @@
 [package]
 name = "zimz-cli"
-description = "zimz command-line tool: inspect, list, extract and check ZIM archives"
+description = "zimz command-line tool: inspect, search and extract ZIM archives, serve them over MCP"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,7 +16,12 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 zimz-core = { workspace = true }
+zimz-extract = { workspace = true }
 zimz-glass = { workspace = true }
+zimz-mcp = { workspace = true }
+zimz-search = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

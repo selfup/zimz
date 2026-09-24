@@ -1,0 +1,1535 @@
+[
+  {
+    "name": "archive_health",
+    "description": "Diagnostics: index presence and coverage, cache statistics, scan failures, and optional structural (`quick`) or full checksum (`full`, slow) verification.",
+    "inputSchema": {
+      "$defs": {
+        "Verify": {
+          "oneOf": [
+            {
+              "const": "none",
+              "description": "Report what is known without reading the archive (default).",
+              "type": "string"
+            },
+            {
+              "const": "quick",
+              "description": "Structural checks: pointer tables, ordering, title index, MIME types (reads\nevery directory entry; seconds on very large archives).",
+              "type": "string"
+            },
+            {
+              "const": "full",
+              "description": "Quick checks plus the MD5 checksum and decoding of every cluster (reads the whole\nfile; minutes for a 100 GB archive).",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "default": null,
+          "description": "One archive (name, uuid, file stem or glob); empty = every archive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verify": {
+          "$ref": "#/$defs/Verify",
+          "default": "none"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ArchiveHealth": {
+          "properties": {
+            "article_count": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "checksum": {
+              "description": "`ok`, `mismatch`, `none` (archive has no checksum) or `skipped`.",
+              "type": "string"
+            },
+            "cluster_cache": {
+              "$ref": "#/$defs/CacheStats"
+            },
+            "file": {
+              "type": "string"
+            },
+            "fulltext_coverage": {
+              "description": "`fulltext_docs / article_count`; well below 1.0 means many articles are not\nsearchable by body text (typical for app-style archives).",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "fulltext_docs": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "has_fulltext_index": {
+              "type": "boolean"
+            },
+            "has_title_index": {
+              "type": "boolean"
+            },
+            "has_title_listing": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "open_ms": {
+              "description": "Milliseconds spent opening and probing the archive at startup.",
+              "format": "double",
+              "type": "number"
+            },
+            "problems": {
+              "description": "Problems found by the requested verification.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "size_bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title_docs": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "uuid": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "file",
+            "uuid",
+            "size_bytes",
+            "open_ms",
+            "article_count",
+            "has_fulltext_index",
+            "has_title_index",
+            "has_title_listing",
+            "checksum",
+            "problems",
+            "cluster_cache"
+          ],
+          "type": "object"
+        },
+        "CacheStats": {
+          "properties": {
+            "hits": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "misses": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "hits",
+            "misses"
+          ],
+          "type": "object"
+        },
+        "ExtractCacheStats": {
+          "properties": {
+            "budget_bytes": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entries": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hits": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "misses": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "entries",
+            "bytes",
+            "budget_bytes",
+            "hits",
+            "misses"
+          ],
+          "type": "object"
+        },
+        "ScanFailure": {
+          "description": "An archive that could not be opened during the scan.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file",
+            "error"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives": {
+          "items": {
+            "$ref": "#/$defs/ArchiveHealth"
+          },
+          "type": "array"
+        },
+        "extract_cache": {
+          "$ref": "#/$defs/ExtractCacheStats"
+        },
+        "failures": {
+          "description": "Files that failed to open during the scan.",
+          "items": {
+            "$ref": "#/$defs/ScanFailure"
+          },
+          "type": "array"
+        },
+        "scan_ms": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "archives",
+        "failures",
+        "extract_cache",
+        "scan_ms"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Archive health",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "context",
+    "description": "One-call retrieval for a question: search all selected archives, take the most relevant section of each top hit and pack the excerpts under `budget_chars`, each with a `zim://archive/path#section` citation. Use `read_article` on a citation for more.",
+    "inputSchema": {
+      "$defs": {
+        "ModeSelect": {
+          "description": "Which tier to use per archive.",
+          "oneOf": [
+            {
+              "enum": [
+                "fulltext",
+                "title",
+                "listing"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "auto",
+              "description": "Full-text index when present, else the title index, else the title listing.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives": {
+          "default": [],
+          "description": "Archive names, uuids, file stems or globs; empty = every archive.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "budget_chars": {
+          "default": 12000,
+          "description": "Total characters of excerpt text to return (default 12000).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_hits": {
+          "default": 6,
+          "description": "Maximum number of excerpts (default 6).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/ModeSelect",
+          "default": "auto"
+        },
+        "per_hit_chars": {
+          "default": 1500,
+          "description": "Maximum characters per excerpt (default 1500).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "Excerpt": {
+          "properties": {
+            "archive": {
+              "type": "string"
+            },
+            "chars": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "matched_terms": {
+              "description": "Distinct query terms found in the excerpt.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "score": {
+              "description": "Search score of the article (1.0 = best hit).",
+              "format": "double",
+              "type": "number"
+            },
+            "section": {
+              "description": "Heading of the section the excerpt comes from (absent: lead / whole article).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "Markdown excerpt.",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "Citation: `zim://archive/path#section`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "archive",
+            "path",
+            "title",
+            "uri",
+            "score",
+            "text",
+            "chars",
+            "matched_terms"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives_searched": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "budget_chars": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chars_used": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "elapsed_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "excerpts": {
+          "items": {
+            "$ref": "#/$defs/Excerpt"
+          },
+          "type": "array"
+        },
+        "fallback_used": {
+          "type": "boolean"
+        },
+        "hits_considered": {
+          "description": "Search hits examined (some may have been skipped: no text, over budget).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "markdown": {
+          "description": "All excerpts rendered as one Markdown document with a `Source:` line each.",
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "query",
+        "excerpts",
+        "chars_used",
+        "budget_chars",
+        "hits_considered",
+        "fallback_used",
+        "archives_searched",
+        "warnings",
+        "elapsed_ms",
+        "markdown"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Gather context",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "links",
+    "description": "Internal links of an article (anchor text, target path and title, whether the target exists), for browsing from one article to related ones.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "description": "Links per page (default 100, max 500).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive",
+        "path"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "LinkInfo": {
+          "properties": {
+            "exists": {
+              "type": "boolean"
+            },
+            "path": {
+              "description": "Path to pass to `read_article`.",
+              "type": "string"
+            },
+            "text": {
+              "description": "Anchor text in the article.",
+              "type": "string"
+            },
+            "title": {
+              "description": "Title of the target article, when it exists.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "path",
+            "uri",
+            "exists"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/LinkInfo"
+          },
+          "type": "array"
+        },
+        "next_offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "total": {
+          "description": "Distinct internal links in the article.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "archive",
+        "path",
+        "title",
+        "links",
+        "total"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Article links",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_archives",
+    "description": "List the ZIM archives in the library with their language, size, article counts, index availability and search mode. Use the returned `name` in other tools.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "filter": {
+          "default": null,
+          "description": "Case-insensitive substring matched against name, title, description, language,\ncategory and tags. Omit to list everything.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ArchiveInfo": {
+          "description": "What an agent needs to know to pick an archive.",
+          "properties": {
+            "adapter": {
+              "description": "Content adapter chosen for Markdown extraction (e.g. `MwOffliner`, `DevDocs`).",
+              "type": "string"
+            },
+            "article_count": {
+              "description": "Front articles (what search results can point to).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "category": {
+              "description": "`_category:` tag, e.g. `wikipedia`, `devdocs`, `gutenberg`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "creator": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "date": {
+              "description": "`YYYY-MM-DD` creation date.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "entry_count": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "file": {
+              "description": "Path of the `.zim` file (first part for split archives).",
+              "type": "string"
+            },
+            "flavour": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fulltext_docs": {
+              "description": "Documents in the full-text index, when there is one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "has_fulltext_index": {
+              "type": "boolean"
+            },
+            "has_title_index": {
+              "type": "boolean"
+            },
+            "language": {
+              "description": "ISO 639-3 code(s), e.g. `eng` or `fra,eng`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "main_page": {
+              "description": "Path of the main page, when the archive declares one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "media_count": {
+              "description": "Images, video and audio entries (from the `Counter` metadata).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "description": "Unique short name that addresses the archive in every other call (the `Name`\nmetadata, or the file name when that is missing or duplicated).",
+              "type": "string"
+            },
+            "priority": {
+              "description": "Ranking weight from the library configuration (1.0 = neutral).",
+              "format": "double",
+              "type": "number"
+            },
+            "publisher": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scraper": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "search_mode": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Mode"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How `search` will query this archive (`None`: no index and no title listing)."
+            },
+            "size_bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tags": {
+              "description": "Plain tags (system `_key:value` tags are folded into the other fields).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title_docs": {
+              "description": "Documents in the title index, when there is one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "uuid": {
+              "type": "string"
+            },
+            "zim_version": {
+              "description": "`major.minor` of the ZIM header.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "file",
+            "uuid",
+            "tags",
+            "size_bytes",
+            "entry_count",
+            "article_count",
+            "media_count",
+            "has_fulltext_index",
+            "has_title_index",
+            "priority",
+            "zim_version",
+            "adapter"
+          ],
+          "type": "object"
+        },
+        "Mode": {
+          "description": "How an archive is searched.",
+          "oneOf": [
+            {
+              "const": "fulltext",
+              "description": "Embedded Xapian full-text index (`X/fulltext/xapian`): BM25 over article bodies.",
+              "type": "string"
+            },
+            {
+              "const": "title",
+              "description": "Embedded Xapian title index (`X/title/xapian`): word-prefix matching on titles.",
+              "type": "string"
+            },
+            {
+              "const": "listing",
+              "description": "Title listing prefix scan (no Xapian index in the archive).",
+              "type": "string"
+            }
+          ]
+        },
+        "ScanFailure": {
+          "description": "An archive that could not be opened during the scan.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file",
+            "error"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives": {
+          "items": {
+            "$ref": "#/$defs/ArchiveInfo"
+          },
+          "type": "array"
+        },
+        "count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failures": {
+          "description": "Files that could not be opened when the library was scanned.",
+          "items": {
+            "$ref": "#/$defs/ScanFailure"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "archives",
+        "count",
+        "failures"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List archives",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "outline",
+    "description": "Heading tree of an article with the size of each section, to pick a `section` for `read_article`.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "description": "Archive name from `list_archives` or a search hit.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Article path from a search hit, a `zim://` URI, or a title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive",
+        "path"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "OutlineItem": {
+          "properties": {
+            "chars": {
+              "description": "Characters of Markdown in the section, subsections included.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "index": {
+              "description": "Index to pass as `section`.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "level": {
+              "description": "Heading level (1 = top).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "level",
+            "title",
+            "chars"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/OutlineItem"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "total_chars": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "word_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "archive",
+        "path",
+        "title",
+        "uri",
+        "word_count",
+        "total_chars",
+        "sections"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Article outline",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "read_article",
+    "description": "Read an article as Markdown (default), plain text or HTML, at most `max_chars` characters from `offset`. When the article is longer the response carries the outline; ask for one `section` (index or heading text) or continue from `next_offset`.",
+    "inputSchema": {
+      "$defs": {
+        "Format": {
+          "oneOf": [
+            {
+              "const": "markdown",
+              "description": "Markdown with headings, lists, tables and `zim://` links (default).",
+              "type": "string"
+            },
+            {
+              "const": "text",
+              "description": "Plain text (no markup, no links).",
+              "type": "string"
+            },
+            {
+              "const": "html",
+              "description": "The stored HTML, untouched.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/Format",
+          "default": "markdown"
+        },
+        "max_chars": {
+          "default": 8000,
+          "description": "Maximum characters returned (default 8000). The outline is included whenever the\narticle is longer, so a follow-up call can ask for one `section`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Character offset to continue from (use `next_offset` of the previous call).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Article path from a search hit, a `zim://` URI, or a title.",
+          "type": "string"
+        },
+        "section": {
+          "default": null,
+          "description": "Return only this section: its index from the outline or (a prefix of) its title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "archive",
+        "path"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "Format": {
+          "oneOf": [
+            {
+              "const": "markdown",
+              "description": "Markdown with headings, lists, tables and `zim://` links (default).",
+              "type": "string"
+            },
+            {
+              "const": "text",
+              "description": "Plain text (no markup, no links).",
+              "type": "string"
+            },
+            {
+              "const": "html",
+              "description": "The stored HTML, untouched.",
+              "type": "string"
+            }
+          ]
+        },
+        "OutlineItem": {
+          "properties": {
+            "chars": {
+              "description": "Characters of Markdown in the section, subsections included.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "index": {
+              "description": "Index to pass as `section`.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "level": {
+              "description": "Heading level (1 = top).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "level",
+            "title",
+            "chars"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "adapter": {
+          "type": "string"
+        },
+        "archive": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/Format"
+        },
+        "links_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "next_offset": {
+          "description": "Offset to continue from; absent when `content` reaches the end.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "description": "Character offset of `content` within the whole document (or section).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outline": {
+          "description": "Section headings, present when the content had to be cut.",
+          "items": {
+            "$ref": "#/$defs/OutlineItem"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Canonical path of the article that was read (redirects resolved).",
+          "type": "string"
+        },
+        "redirected_from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "section": {
+          "description": "Title of the section that was selected, when `section` was given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "total_chars": {
+          "description": "Characters in the whole document (or selected section).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "word_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "archive",
+        "path",
+        "title",
+        "uri",
+        "format",
+        "content",
+        "offset",
+        "total_chars",
+        "truncated",
+        "adapter"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Read article",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search",
+    "description": "Full-text search across the selected archives (all by default). Terms are ANDed and stemmed per archive language; rankings are fused across archives and exact title matches are boosted. When AND matches fewer than a page, OR matches are appended and flagged `partial`. Returns paths for `read_article`, snippets and a `next_cursor`.",
+    "inputSchema": {
+      "$defs": {
+        "ModeSelect": {
+          "description": "Which tier to use per archive.",
+          "oneOf": [
+            {
+              "enum": [
+                "fulltext",
+                "title",
+                "listing"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "auto",
+              "description": "Full-text index when present, else the title index, else the title listing.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives": {
+          "default": [],
+          "description": "Archive names, uuids, file stems or globs; empty = every archive.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cursor": {
+          "default": null,
+          "description": "Opaque cursor from a previous response to fetch the next page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "default": 10,
+          "description": "Hits per page (1..=50).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_score": {
+          "default": null,
+          "description": "Drop hits whose normalised score (1.0 = best) is below this.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/ModeSelect",
+          "default": "auto"
+        },
+        "or_fallback": {
+          "default": true,
+          "description": "When an AND query fills less than a page, add OR matches after the AND hits.",
+          "type": "boolean"
+        },
+        "query": {
+          "type": "string"
+        },
+        "snippet_chars": {
+          "default": 300,
+          "description": "Maximum characters per snippet; 0 disables snippets.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "Mode": {
+          "description": "How an archive is searched.",
+          "oneOf": [
+            {
+              "const": "fulltext",
+              "description": "Embedded Xapian full-text index (`X/fulltext/xapian`): BM25 over article bodies.",
+              "type": "string"
+            },
+            {
+              "const": "title",
+              "description": "Embedded Xapian title index (`X/title/xapian`): word-prefix matching on titles.",
+              "type": "string"
+            },
+            {
+              "const": "listing",
+              "description": "Title listing prefix scan (no Xapian index in the archive).",
+              "type": "string"
+            }
+          ]
+        },
+        "SearchHit": {
+          "properties": {
+            "archive": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/Mode"
+            },
+            "partial": {
+              "description": "True when the hit matched only some of the query terms (OR fallback).",
+              "type": "boolean"
+            },
+            "path": {
+              "description": "Path to pass to `read_article` (canonical, redirects resolved when known).",
+              "type": "string"
+            },
+            "percent": {
+              "description": "Xapian's relevance percentage within the archive (100 = best in that archive).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rank": {
+              "description": "1-based position across the whole result list.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "score": {
+              "description": "Fused score normalised so the best hit is 1.0.",
+              "format": "double",
+              "type": "number"
+            },
+            "snippet": {
+              "description": "Best window of the article text around the query terms (`**term**` marks\nmatches), when requested and extractable.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "`zim://archive/path`.",
+              "type": "string"
+            },
+            "word_count": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "rank",
+            "archive",
+            "path",
+            "title",
+            "uri",
+            "score",
+            "percent",
+            "mode",
+            "partial"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives_searched": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "elapsed_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fallback_used": {
+          "description": "OR matches were appended because AND matched fewer than a page.",
+          "type": "boolean"
+        },
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/SearchHit"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Pass back as `cursor` to get the next page; absent on the last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "query": {
+          "type": "string"
+        },
+        "total_estimate": {
+          "description": "Sum of per-archive match counts (before fusion and de-duplication).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "warnings": {
+          "description": "Archives that were selected but skipped (no usable index) or failed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "query",
+        "hits",
+        "total_estimate",
+        "fallback_used",
+        "archives_searched",
+        "warnings",
+        "elapsed_ms"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Search archives",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest",
+    "description": "Complete a title prefix across the selected archives (type-ahead over the title indexes). Good for finding the exact article name before `read_article`.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives": {
+          "default": [],
+          "description": "Archive names, uuids, file stems or globs; empty = every archive.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Suggestions to return (1..=50).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prefix": {
+          "description": "Beginning of a title, one or more words (the last may be partial).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefix"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "Mode": {
+          "description": "How an archive is searched.",
+          "oneOf": [
+            {
+              "const": "fulltext",
+              "description": "Embedded Xapian full-text index (`X/fulltext/xapian`): BM25 over article bodies.",
+              "type": "string"
+            },
+            {
+              "const": "title",
+              "description": "Embedded Xapian title index (`X/title/xapian`): word-prefix matching on titles.",
+              "type": "string"
+            },
+            {
+              "const": "listing",
+              "description": "Title listing prefix scan (no Xapian index in the archive).",
+              "type": "string"
+            }
+          ]
+        },
+        "SuggestionHit": {
+          "properties": {
+            "archive": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/Mode"
+            },
+            "path": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "archive",
+            "path",
+            "title",
+            "uri",
+            "mode"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "archives_searched": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "elapsed_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "suggestions": {
+          "items": {
+            "$ref": "#/$defs/SuggestionHit"
+          },
+          "type": "array"
+        },
+        "total_estimate": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "prefix",
+        "suggestions",
+        "total_estimate",
+        "archives_searched",
+        "warnings",
+        "elapsed_ms"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Suggest titles",
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

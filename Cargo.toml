@@ -14,6 +14,9 @@ repository = "https://github.com/selfup/zimz"
 [workspace.dependencies]
 zimz-core = { path = "crates/zimz-core" }
 zimz-glass = { path = "crates/zimz-glass" }
+zimz-extract = { path = "crates/zimz-extract" }
+zimz-search = { path = "crates/zimz-search" }
+zimz-mcp = { path = "crates/zimz-mcp" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive"] }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
@@ -22,7 +25,9 @@ lru = "0.18"
 lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
 md-5 = "0.11"
 memmap2 = "0.9"
+percent-encoding = "2.3"
 ruzstd = "0.9"
+scraper = { version = "0.27", default-features = false }
 rust-stemmers = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,6 +35,14 @@ thiserror = "2"
 unicode-general-category = "1.1"
 unicode-normalization = "0.1"
 zstd = "0.14"
+rayon = "1.10"
+glob-match = "0.2"
+tempfile = "3"
+rmcp = { version = "3.4", features = ["server", "transport-io", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
+schemars = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -50,11 +63,7 @@ similar_names = "allow"
 lto = "thin"
 codegen-units = 1
 
-# Decoders are hot even in test builds (the pure xz decoder initialises a 64 MiB
-# dictionary per cluster); keep them optimised under the dev/test profiles.
-[profile.dev.package.lzma-rust2]
-opt-level = 3
-[profile.dev.package.ruzstd]
-opt-level = 3
-[profile.dev.package.md-5]
+# Dependencies (decoders, the HTML parser, hashing) dominate test time and are not
+# what we debug; keep them optimised under the dev/test profiles.
+[profile.dev.package."*"]
 opt-level = 3

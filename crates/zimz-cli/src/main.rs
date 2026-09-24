@@ -2,18 +2,19 @@
 // Copyright (C) 2026 Regis Boudinot
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use zimz_core::integrity::{self, Check};
 use zimz_core::{Archive, DirentKind, TitleIndex};
+use zimz_search::{Library, LibraryConfig};
 
 #[derive(Parser)]
 #[command(
     name = "zimz",
     version,
-    about = "Inspect, list, extract and check ZIM archives"
+    about = "Inspect, search and extract ZIM archives; serve a directory of them over MCP"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -59,31 +60,97 @@ enum Cmd {
         #[arg(long)]
         clusters: bool,
     },
-    /// Full-text search using the archive's embedded Xapian index
+    /// Extract an entry as Markdown (default), plain text, or an outline
+    Extract {
+        zim: PathBuf,
+        path: String,
+        /// Plain text instead of Markdown
+        #[arg(long)]
+        text: bool,
+        /// Print the heading outline only
+        #[arg(long)]
+        outline: bool,
+        /// Print one section (index or title prefix)
+        #[arg(long)]
+        section: Option<String>,
+        /// Prefix for internal links, e.g. `zim://wikipedia/`
+        #[arg(long)]
+        link_prefix: Option<String>,
+    },
+    /// Full-text search: one archive's embedded index, or federated over a directory
     Search {
+        /// A `.zim` file or a directory of them
         zim: PathBuf,
         query: String,
         /// Number of results
         #[arg(short = 'n', long, default_value_t = 10)]
         limit: usize,
+        /// Skip this many results (single archive only)
         #[arg(long, default_value_t = 0)]
         offset: usize,
-        /// Match any term instead of all terms
+        /// Match any term instead of all terms (single archive only)
         #[arg(long)]
         any: bool,
+        /// Restrict to archives matching these names or globs (directory only)
+        #[arg(long = "archive", value_name = "NAME")]
+        archives: Vec<String>,
+        /// Cursor from a previous run to fetch the next page (directory only)
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Snippet length in characters, 0 to disable (directory only)
+        #[arg(long, default_value_t = 300)]
+        snippet_chars: usize,
+        /// Print the response as JSON (directory only)
+        #[arg(long)]
+        json: bool,
         /// Print timings to stderr
         #[arg(long)]
         time: bool,
     },
-    /// Title suggestions (type-ahead) using the archive's embedded title index
+    /// Title suggestions (type-ahead): one archive, or federated over a directory
     Suggest {
+        /// A `.zim` file or a directory of them
         zim: PathBuf,
         prefix: String,
         #[arg(short = 'n', long, default_value_t = 10)]
         limit: usize,
+        /// Print the response as JSON (directory only)
+        #[arg(long)]
+        json: bool,
         /// Print timings to stderr
         #[arg(long)]
         time: bool,
+    },
+    /// Search a directory and pack the best excerpts under a character budget
+    Context {
+        /// A directory of `.zim` files (or one file)
+        zim: PathBuf,
+        query: String,
+        #[arg(long, default_value_t = 12_000)]
+        budget: usize,
+        #[arg(long, default_value_t = 1_500)]
+        per_hit: usize,
+        #[arg(long, default_value_t = 6)]
+        max_hits: usize,
+        #[arg(long = "archive", value_name = "NAME")]
+        archives: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List the archives of a directory as the MCP server sees them
+    Archives {
+        #[command(flatten)]
+        lib: LibraryArgs,
+        /// Substring filter over name, title, description, language, tags
+        #[arg(long)]
+        filter: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Serve the library to AI agents over MCP on stdin/stdout
+    Mcp {
+        #[command(flatten)]
+        lib: LibraryArgs,
     },
     /// Write an embedded Xapian index blob to a file
     DumpIndex {
@@ -94,6 +161,83 @@ enum Cmd {
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+/// Where the MCP server and the directory-level commands find archives.
+#[derive(clap::Args)]
+struct LibraryArgs {
+    /// Directory of ZIM files (repeatable; scanned recursively unless --no-recursive)
+    #[arg(long = "zim-dir", value_name = "DIR")]
+    zim_dirs: Vec<PathBuf>,
+    /// Single ZIM file (repeatable)
+    #[arg(long = "zim", value_name = "FILE")]
+    zims: Vec<PathBuf>,
+    /// Do not descend into subdirectories
+    #[arg(long)]
+    no_recursive: bool,
+    /// Total budget for decoded clusters, shared across archives
+    #[arg(long, default_value_t = 256, value_name = "MB")]
+    cluster_cache_mb: usize,
+    /// Budget for extracted articles (Markdown + text)
+    #[arg(long, default_value_t = 64, value_name = "MB")]
+    extract_cache_mb: usize,
+    /// Ranking weight for archives matching a glob, e.g. `wikipedia_*=2` (repeatable)
+    #[arg(long = "priority", value_name = "GLOB=WEIGHT")]
+    priorities: Vec<String>,
+}
+
+impl LibraryArgs {
+    fn from_path(path: &Path) -> Self {
+        let (zim_dirs, zims) = if path.is_dir() {
+            (vec![path.to_path_buf()], Vec::new())
+        } else {
+            (Vec::new(), vec![path.to_path_buf()])
+        };
+        Self {
+            zim_dirs,
+            zims,
+            no_recursive: false,
+            cluster_cache_mb: 256,
+            extract_cache_mb: 64,
+            priorities: Vec::new(),
+        }
+    }
+
+    fn config(&self) -> anyhow::Result<LibraryConfig> {
+        if self.zim_dirs.is_empty() && self.zims.is_empty() {
+            bail!("give at least one --zim-dir or --zim");
+        }
+        let mut priorities = Vec::new();
+        for p in &self.priorities {
+            let (glob, weight) = p
+                .split_once('=')
+                .with_context(|| format!("--priority {p:?}: expected GLOB=WEIGHT"))?;
+            let weight: f64 = weight
+                .parse()
+                .with_context(|| format!("--priority {p:?}: bad weight"))?;
+            priorities.push((glob.to_string(), weight));
+        }
+        Ok(LibraryConfig {
+            dirs: self.zim_dirs.clone(),
+            files: self.zims.clone(),
+            recursive: !self.no_recursive,
+            cluster_cache_bytes: self.cluster_cache_mb.saturating_mul(1 << 20),
+            extract_cache_bytes: self.extract_cache_mb.saturating_mul(1 << 20),
+            priorities,
+            ..LibraryConfig::default()
+        })
+    }
+
+    fn open(&self) -> anyhow::Result<Library> {
+        let library = Library::scan(self.config()?).context("scanning the library")?;
+        for f in library.failures() {
+            eprintln!("warning: {}: {}", f.file, f.error);
+        }
+        if library.is_empty() {
+            bail!("no archives found");
+        }
+        Ok(library)
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -123,14 +267,69 @@ fn main() -> anyhow::Result<()> {
             limit,
             offset,
             any,
+            archives,
+            cursor,
+            snippet_chars,
+            json,
             time,
-        } => search(&zim, &query, limit, offset, any, time),
+        } => {
+            if zim.is_dir() {
+                let opts = DirSearch {
+                    limit,
+                    archives,
+                    cursor,
+                    snippet_chars,
+                    json,
+                    time,
+                };
+                library_search(&zim, &query, opts)
+            } else {
+                search(&zim, &query, limit, offset, any, time)
+            }
+        }
         Cmd::Suggest {
             zim,
             prefix,
             limit,
+            json,
             time,
-        } => suggest_cmd(&zim, &prefix, limit, time),
+        } => {
+            if zim.is_dir() {
+                library_suggest(&zim, &prefix, limit, json, time)
+            } else {
+                suggest_cmd(&zim, &prefix, limit, time)
+            }
+        }
+        Cmd::Context {
+            zim,
+            query,
+            budget,
+            per_hit,
+            max_hits,
+            archives,
+            json,
+        } => context_cmd(&zim, &query, budget, per_hit, max_hits, archives, json),
+        Cmd::Archives { lib, filter, json } => archives_cmd(&lib, filter.as_deref(), json),
+        Cmd::Mcp { lib } => {
+            zimz_mcp::init_logging();
+            let library = lib.open()?;
+            zimz_mcp::run_stdio(library).map_err(|e| anyhow::anyhow!("{e}"))
+        }
+        Cmd::Extract {
+            zim,
+            path,
+            text,
+            outline,
+            section,
+            link_prefix,
+        } => extract_cmd(
+            &zim,
+            &path,
+            text,
+            outline,
+            section.as_deref(),
+            link_prefix.as_deref(),
+        ),
         Cmd::DumpIndex { zim, kind, output } => dump_index(&zim, &kind, &output),
     }
 }
@@ -384,6 +583,64 @@ fn check(path: &PathBuf, checksum: bool, clusters: bool) -> anyhow::Result<()> {
     bail!("{} problem(s) found", problems.len());
 }
 
+fn extract_cmd(
+    path: &PathBuf,
+    entry_path: &str,
+    text: bool,
+    outline: bool,
+    section: Option<&str>,
+    link_prefix: Option<&str>,
+) -> anyhow::Result<()> {
+    let archive = open(path)?;
+    let entry = match archive.entry_by_long_path(entry_path)? {
+        Some(e) => e,
+        None => archive
+            .entry_by_path_compat(entry_path)?
+            .with_context(|| format!("entry not found: {entry_path}"))?,
+    };
+    let adapter = zimz_extract::detect_adapter(&archive);
+    let doc = zimz_extract::extract(&archive, &entry, adapter, link_prefix)?;
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    if outline {
+        writeln!(
+            out,
+            "{} ({:?}, {} words, {} links, from {})",
+            doc.title,
+            doc.adapter,
+            doc.word_count,
+            doc.links.len(),
+            doc.source_path
+        )?;
+        for o in doc.outline() {
+            writeln!(
+                out,
+                "{:>3}. {}{} ({} chars)",
+                o.index,
+                "  ".repeat(usize::from(o.level.saturating_sub(1))),
+                o.title,
+                o.chars
+            )?;
+        }
+        return Ok(());
+    }
+    let body = match section {
+        Some(name) => {
+            let idx = doc
+                .find_section(name)
+                .with_context(|| format!("no section matching {name:?}"))?;
+            doc.section_markdown(idx).unwrap_or_default().to_string()
+        }
+        None if text => doc.text.clone(),
+        None => doc.markdown.clone(),
+    };
+    match out.write_all(body.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn search(
     path: &PathBuf,
     query: &str,
@@ -514,4 +771,117 @@ fn dump_index(path: &PathBuf, kind: &str, output: &PathBuf) -> anyhow::Result<()
     }
     println!("wrote {} bytes to {}", da.len, output.display());
     Ok(())
+}
+
+fn print_response<T: serde::Serialize>(
+    value: &T,
+    json: bool,
+    text: impl FnOnce(&T) -> String,
+) -> anyhow::Result<()> {
+    let out = std::io::stdout();
+    let mut w = out.lock();
+    if json {
+        serde_json::to_writer_pretty(&mut w, value)?;
+        writeln!(w)?;
+    } else {
+        w.write_all(text(value).as_bytes())?;
+    }
+    Ok(())
+}
+
+struct DirSearch {
+    limit: usize,
+    archives: Vec<String>,
+    cursor: Option<String>,
+    snippet_chars: usize,
+    json: bool,
+    time: bool,
+}
+
+fn library_search(dir: &Path, query: &str, opts: DirSearch) -> anyhow::Result<()> {
+    use std::time::Instant;
+    let DirSearch {
+        limit,
+        archives,
+        cursor,
+        snippet_chars,
+        json,
+        time,
+    } = opts;
+    let t0 = Instant::now();
+    let library = LibraryArgs::from_path(dir).open()?;
+    let t1 = Instant::now();
+    let mut req = zimz_search::SearchRequest::new(query);
+    req.limit = limit;
+    req.archives = archives;
+    req.cursor = cursor;
+    req.snippet_chars = snippet_chars;
+    let res = library.search(&req)?;
+    if time {
+        eprintln!(
+            "scan {} archives {:.1?}, search {:.1?}",
+            library.len(),
+            t1 - t0,
+            t1.elapsed()
+        );
+    }
+    print_response(&res, json, zimz_mcp::render::search)
+}
+
+fn library_suggest(
+    dir: &Path,
+    prefix: &str,
+    limit: usize,
+    json: bool,
+    time: bool,
+) -> anyhow::Result<()> {
+    use std::time::Instant;
+    let t0 = Instant::now();
+    let library = LibraryArgs::from_path(dir).open()?;
+    let t1 = Instant::now();
+    let res = library.suggest(&zimz_search::SuggestRequest {
+        prefix: prefix.to_string(),
+        archives: Vec::new(),
+        limit,
+    })?;
+    if time {
+        eprintln!(
+            "scan {} archives {:.1?}, suggest {:.1?}",
+            library.len(),
+            t1 - t0,
+            t1.elapsed()
+        );
+    }
+    print_response(&res, json, zimz_mcp::render::suggest)
+}
+
+fn context_cmd(
+    path: &Path,
+    query: &str,
+    budget: usize,
+    per_hit: usize,
+    max_hits: usize,
+    archives: Vec<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let library = LibraryArgs::from_path(path).open()?;
+    let mut req = zimz_search::ContextRequest::new(query);
+    req.budget_chars = budget;
+    req.per_hit_chars = per_hit;
+    req.max_hits = max_hits;
+    req.archives = archives;
+    let res = library.context(&req)?;
+    print_response(&res, json, zimz_mcp::render::context)
+}
+
+fn archives_cmd(lib: &LibraryArgs, filter: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let library = lib.open()?;
+    let archives: Vec<zimz_search::ArchiveInfo> =
+        library.list(filter).into_iter().cloned().collect();
+    let res = zimz_mcp::server::ListArchivesResponse {
+        count: archives.len(),
+        archives,
+        failures: library.failures().to_vec(),
+    };
+    print_response(&res, json, zimz_mcp::render::archives)
 }

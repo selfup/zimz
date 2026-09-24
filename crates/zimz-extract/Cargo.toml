@@ -1,0 +1,19 @@
+[package]
+name = "zimz-extract"
+description = "Turn ZIM entries (HTML from mwoffliner, devdocs, zimit, Gutenberg; JSON from LibreTexts and YouTube scrapers) into Markdown, plain text, outlines, links and snippets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+percent-encoding = { workspace = true }
+scraper = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zimz-core = { workspace = true }
+
+[lints]
+workspace = true

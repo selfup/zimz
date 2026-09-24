@@ -1,0 +1,33 @@
+[package]
+name = "zimz-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Catalog and federated search over a directory of ZIM archives"
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on every request/response type (used by zimz-mcp).
+schema = ["dep:schemars"]
+
+[dependencies]
+zimz-core.workspace = true
+zimz-glass.workspace = true
+zimz-extract.workspace = true
+glob-match.workspace = true
+lru.workspace = true
+percent-encoding.workspace = true
+rayon.workspace = true
+schemars = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
