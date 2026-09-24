@@ -1,0 +1,27 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache fixtures
+        uses: actions/cache@v4
+        with:
+          path: fixtures/zim-testing-suite
+          key: zim-testing-suite-${{ hashFiles('scripts/fetch-fixtures.sh') }}
+      - run: ./scripts/fetch-fixtures.sh
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: Test pure-Rust codecs
+        run: cargo test -p zimz-core --no-default-features --features zstd-pure,xz-pure

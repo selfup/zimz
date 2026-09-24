@@ -1,0 +1,10 @@
+/target
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fixtures/zim-testing-suite/
+*.zim
+*.zimaa
+*.zimab
+.DS_Store
+.venv

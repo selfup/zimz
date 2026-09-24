@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "GPL-3.0-only"
+authors = ["Regis Boudinot"]
+repository = "https://github.com/selfup/zimz"
+
+[workspace.dependencies]
+zimz-core = { path = "crates/zimz-core" }
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+liblzma = { version = "0.4", features = ["static"] }
+lru = "0.18"
+lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
+md-5 = "0.11"
+memmap2 = "0.9"
+ruzstd = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zstd = "0.14"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+cast_possible_truncation = "allow"
+cast_lossless = "allow"
+similar_names = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Decoders are hot even in test builds (the pure xz decoder initialises a 64 MiB
+# dictionary per cluster); keep them optimised under the dev/test profiles.
+[profile.dev.package.lzma-rust2]
+opt-level = 3
+[profile.dev.package.ruzstd]
+opt-level = 3
+[profile.dev.package.md-5]
+opt-level = 3

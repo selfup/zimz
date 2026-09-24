@@ -1,0 +1,36 @@
+[package]
+name = "zimz-core"
+description = "Native reader for ZIM archives (openZIM format): header, entries, clusters, listings, metadata"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["zstd-c", "xz-c"]
+# zstd cluster decoding: C libzstd (fast) or pure-Rust ruzstd.
+zstd-c = ["dep:zstd"]
+zstd-pure = ["dep:ruzstd"]
+# xz/LZMA2 cluster decoding: C liblzma (fast) or pure-Rust lzma-rust2.
+xz-c = ["dep:liblzma"]
+xz-pure = ["dep:lzma-rust2"]
+
+[dependencies]
+liblzma = { workspace = true, optional = true }
+lru = { workspace = true }
+lzma-rust2 = { workspace = true, optional = true }
+md-5 = { workspace = true }
+memmap2 = { workspace = true }
+ruzstd = { workspace = true, optional = true }
+thiserror = { workspace = true }
+zstd = { workspace = true, optional = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest = "1.11"
+serde = { workspace = true }
+serde_json = { workspace = true }
