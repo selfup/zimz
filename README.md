@@ -1,5 +1,9 @@
 # zimz
 
+<p align="center">
+  <img src="https://gitlab.com/-/project/86917340/uploads/4d10d1691a03afaa9e33cc22dea7e26c/zimz_banner.png" alt="zimz banner" width="300" height="300">
+</p>
+
 Native Rust tools for [ZIM](https://wiki.openzim.org/wiki/ZIM_file_format) archives
 (Wikipedia, DevDocs, Gutenberg, LibreTexts, … as packaged by Kiwix), without libzim or
 Xapian: a reader, a search engine over the indexes embedded in every archive, a
