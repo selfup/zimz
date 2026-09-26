@@ -19,7 +19,7 @@ format handling are derived from xapian-core and libzim (GPL-2.0-or-later); see
 | `zimz-glass` | Reads the Xapian "glass" databases embedded in ZIMs and runs libzim-identical full-text search (BM25) and title suggestions. |
 | `zimz-extract` | HTML/JSON entries → Markdown or plain text with an outline, resolved links, per-scraper boilerplate pruning, snippets. |
 | `zimz-search` | A directory of archives as one library: catalogue, federated search with rank fusion, articles, links, budgeted context excerpts, health. |
-| `zimz-mcp` | MCP server (stdio) over a library: `list_archives`, `search`, `read_article`, `outline`, `suggest`, `context`, `links`, `archive_health`; `zim://` resources. |
+| `zimz-mcp` | MCP server (stdio, or streamable HTTP with a bearer token) over a library: `list_archives`, `search`, `read_article`, `outline`, `suggest`, `context`, `links`, `archive_health`; `zim://` resources. |
 | `zimz-cli` | The `zimz` binary. |
 
 ## Use with Claude Code (or any MCP client)
@@ -104,7 +104,7 @@ zimz check   file.zim --checksum
 ## Development
 
 ```sh
-scripts/fetch-fixtures.sh            # openzim/zim-testing-suite samples (gitignored)
+scripts/fetch-fixtures.sh            # openzim/zim-testing-suite samples (gitignored; needs uv)
 cargo test --workspace               # unit, fixture, property and MCP end-to-end tests
 ZIMZ_TEST_ZIM_DIR=~/zims cargo test --workspace   # also the local-library tests
 uv run scripts/search_parity.py …    # python-libzim oracles (see docs/P2-glass-reader.md)

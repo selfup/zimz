@@ -74,7 +74,12 @@ fn run(slot: &Slot, prefix: &str, limit: usize) -> Result<Run> {
             .iter()
             .map(|s| {
                 let path = slot.user_path_from_index(s.target_path.as_deref().unwrap_or(&s.path));
-                let title = slot.entry_title(&path).unwrap_or_else(|| s.title.clone());
+                // The matched entry may be a redirect ("Photosynthesis" → "Synthesis"):
+                // show its own title, cased as the directory has it, with the target path.
+                let matched = slot.user_path_from_index(&s.path);
+                let title = slot
+                    .entry_title(&matched)
+                    .unwrap_or_else(|| s.title.clone());
                 Cand {
                     boost: title_boost(analyzer, &q_norm, &q_stems, &title),
                     path,

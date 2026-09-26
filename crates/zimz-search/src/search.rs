@@ -293,7 +293,10 @@ pub(crate) fn run_archive(
                     .map(|s| {
                         let path =
                             slot.user_path_from_index(s.target_path.as_deref().unwrap_or(&s.path));
-                        let title = slot.entry_title(&path).unwrap_or_else(|| s.title.clone());
+                        let matched = slot.user_path_from_index(&s.path);
+                        let title = slot
+                            .entry_title(&matched)
+                            .unwrap_or_else(|| s.title.clone());
                         Candidate {
                             title_boost: boost(&title),
                             path,

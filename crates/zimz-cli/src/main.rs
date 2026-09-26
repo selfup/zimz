@@ -254,6 +254,19 @@ impl LibraryArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    match run() {
+        // `zimz … | head` closes the pipe early; that is not an error worth reporting.
+        Err(e)
+            if e.downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe) =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
+}
+
+fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Info { zim } => info(&zim),
