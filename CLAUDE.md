@@ -1,4 +1,4 @@
-# Claude Code Instructions
+# Instructions
 
 ## Go
 
@@ -7,13 +7,15 @@
 - Use `go vet <path>` for static analysis
 - Use `go fix <path>` for automated fixes
 - Use `go test <path>` for tests
+- Before `go run` if code is new: `go vet/fmt/fix/test`
 
-This keeps the repo free of committed binaries and ensures all Go is run from source.
+This keeps the repo free of committed binaries.
+It also ensures all Go is correct and run from source.
 
 ## Rust
 
 - Use `cargo fmt`
-- Use `cargo check` before `cargo run`
+- Use `cargo check` before `cargo run` or `cargo build`
 - No Warnings
 
 ## Git
@@ -23,6 +25,21 @@ This keeps the repo free of committed binaries and ensures all Go is run from so
 - Only create commits when the user explicitly asks (`commit`, `commit and push`, etc.)
 - For any other git operation that mutates history or shared state, ask first
 
+## Additional CLI Tools
+
+ripgrep
+hexyl
+exa
+uv
+imagemagick
+ffmpeg
+curl
+wget
+
 ## Pyhton
 
-Use uv to install deps, and run python code. uv only
+Only use uv to install deps, and run python code.
+
+uv is built from source and manages python.
+
+I repeat: for python use `uv run python -`
