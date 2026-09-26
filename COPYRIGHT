@@ -14,3 +14,42 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 SPDX-License-Identifier: GPL-3.0-only
+
+Third-party notices
+-------------------
+
+Parts of this program are derived works of code licensed under the GNU General
+Public License version 2 or (at your option) any later version; they are
+distributed here under version 3, as that licence permits. Original copyright
+notices are preserved below.
+
+* crates/zimz-glass: the reader for Xapian "glass" databases (block B-trees,
+  posting-list and position encodings, sortable varints) and the BM25 weighting
+  and suggestion query semantics are ported from xapian-core 1.4 (and libzim's use
+  of it).
+  Copyright 1999,2000,2001 BrightStation PLC
+  Copyright 2002 Ananova Ltd
+  Copyright 2002-2025 Olly Betts
+  Copyright 2008 Lemur Consulting Ltd
+  and other Xapian contributors. https://xapian.org/ — GPL-2.0-or-later.
+
+* crates/zimz-core and crates/zimz-glass: the ZIM format handling (directory entry
+  and title lookup rules, redirect resolution, cluster layout, embedded index
+  location) and the search and suggestion behaviour follow libzim, whose sources
+  were consulted while writing them.
+  Copyright (C) 2007 Tommi Maekitalo
+  Copyright (C) 2017-2021 Matthieu Gautier
+  Copyright (C) 2018 Kunal Mehta
+  Copyright (C) 2020 Emmanuel Engelhart
+  Copyright (C) 2021 Maneesh P M
+  Copyright (C) 2021 Veloman Yunkan
+  and other libzim contributors (openZIM project).
+  https://github.com/openzim/libzim — GPL-2.0-or-later (per-file notices: "either
+  version 2 of the License, or (at your option) any later version").
+
+* The Snowball stemming algorithms are used through the rust-stemmers crate
+  (BSD-3-Clause / MIT). Other Rust dependencies are under MIT, Apache-2.0,
+  BSD-3-Clause or ISC licences; see each crate's metadata.
+
+* python-libzim (GPL-3.0) is used only by the test oracle scripts under scripts/
+  and is neither linked into nor distributed with this program.

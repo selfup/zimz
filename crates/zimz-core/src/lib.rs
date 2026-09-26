@@ -7,6 +7,11 @@
 //!
 //! The entry point is [`Archive`]. Everything is read lazily from a memory-mapped
 //! [`source::Source`]; decompressed clusters and parsed directory entries are cached.
+//!
+//! The format handling follows the `openZIM` specification and libzim's behaviour
+//! (lookup rules, redirect resolution, embedded index location), whose sources were
+//! consulted while writing this crate; libzim is copyright its authors (the `openZIM`
+//! project), GPL-2.0-or-later, used here under GPL-3.0. See the repository `COPYRIGHT`.
 
 pub mod archive;
 mod cache;
