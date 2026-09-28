@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
 //! Resolve `href`s found in stored HTML to ZIM entries. Stored paths are raw UTF-8 while

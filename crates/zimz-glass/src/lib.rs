@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 //
 // Portions ported from xapian-core 1.4 and libzim (GPL-2.0-or-later, used under

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
 //! Posting lists (`backends/glass/glass_postlist.cc`): chunked `(docid, wdf)` lists

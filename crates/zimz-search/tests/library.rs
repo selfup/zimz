@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
 //! End-to-end tests over the zim-testing-suite fixtures: a library mixing an

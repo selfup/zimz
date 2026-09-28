@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
 //! Query evaluation with Xapian's BM25 (`weight/bm25weight.cc`, default parameters)
