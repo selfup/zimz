@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
-//! Rough timings against the targets in PLAN.md section 6.9:
+//! Rough timings against the targets in docs/P1-core-reader.md:
 //! `cargo run --release -p zimz-core --example bench -- <file.zim> [samples]`
 
 use std::time::Instant;

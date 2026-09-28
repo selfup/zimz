@@ -1,6 +1,6 @@
 # P1 — `zimz-core` reader: results (2026-09-23)
 
-Scope: PLAN.md §6.2 / §7 P0–P1. Everything below was measured on this machine
+Scope: phases P0–P1 (bootstrap and the ZIM reader). Everything below was measured on this machine
 (Apple Silicon, macOS, NVMe) against the local library in `~/zims`.
 
 ## What exists
@@ -47,7 +47,7 @@ liblzma) and ~90 ms unoptimised. The C codecs stay the default, and
 
 ## Acceptance results
 
-| Criterion (PLAN §7 P1) | Result |
+| P1 acceptance criterion | Result |
 |---|---|
 | Testing-suite fixtures incl. corrupted ones, no panics | all pass; every invalid file is rejected at open or by `integrity::run` |
 | Byte-identical vs python-libzim | 13 archives, ~9 900 sampled entries (paths, titles, redirect targets, sizes, MD5, MIME, title lookups): 0 mismatches. ZIM 5.0 (wikem, AoPS), 6.2 (ifixit, libretexts, zimgit, cdc), 6.3 (devdocs, mankier, gutenberg, wikispecies, youtube2zim, Wikipedia 202 samples) |
