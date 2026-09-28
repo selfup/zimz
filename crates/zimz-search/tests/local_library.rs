@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Regis Boudinot
 
 //! Tests against a real ZIM directory, enabled with `ZIMZ_TEST_ZIM_DIR=~/zims`.

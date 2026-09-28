@@ -1,6 +1,6 @@
 # P3 — `zimz-extract`: content to Markdown, text, outlines, links, snippets (2026-09-24)
 
-Scope: PLAN.md §6.4, §7 P3. Turns a ZIM entry into what an agent should read: Markdown
+Scope: phase P3. Turns a ZIM entry into what an agent should read: Markdown
 with a heading outline and resolved links, plain text for snippets and word counts.
 
 ## What exists (crate `zimz-extract`, ~2 000 lines incl. tests)

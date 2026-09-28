@@ -53,7 +53,7 @@ commands above; the JSON is not committed).
 - **Cluster decoding is a wash.** Both link libzstd, and a cold item read is one ~2 MiB
   cluster decode. zimz is 10–20 % slower on Wikipedia and iFixit because it decodes the
   whole cluster into memory, while libzim streams and stops at the requested blob. An
-  early-stop decode (PLAN §6.2) would close that gap for blobs early in a cluster.
+  early-stop decode (open item in PLAN.md §2) would close that gap for blobs early in a cluster.
 - **First-pass lookups on Wikipedia are 2–2.5x slower** than libzim. libzim samples its
   1024-entry grid at open, so its very first lookups already touch few pages; zimz builds
   its grids (every 4096th key) after 8 lookups, and that sampling shows up in the first

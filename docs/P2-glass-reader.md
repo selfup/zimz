@@ -1,6 +1,6 @@
 # P2 — `zimz-glass`: native Xapian glass reader and search (2026-09-24)
 
-Scope: PLAN.md §3.4, §6.3, §7 P2. Reads the Xapian "glass" single-file databases that
+Scope: phase P2. Reads the Xapian "glass" single-file databases that
 libzim embeds in every ZIM (`X/fulltext/xapian`, `X/title/xapian`) without linking
 Xapian, and reproduces libzim's full-text search and title suggestions.
 
@@ -43,11 +43,11 @@ Zero-copy: the database is a byte slice of the memory-mapped ZIM; B-tree blocks 
 | suggest `leonardo da` (277 titles) | Wikipedia (3.5 GB title index) | 75 ms |
 | suggest `quantum` (2 179 titles) | Wikipedia | 256 ms |
 
-The fulltext targets in PLAN §6.9 (< 50 ms warm) are met. Single-word suggestions on
+The full-text target (< 50 ms warm) is met. Single-word suggestions on
 Wikipedia are above the 20 ms target: every candidate costs two position-list lookups
-and the tie groups need title values. Candidates for later: skip the phrase checks when
-the query is one word that cannot form a phrase, batch title reads, cap prefixes at two
-characters in the MCP layer.
+and the tie groups need title values. Open item in PLAN.md §2; candidates: skip the
+phrase checks when the query is one word that cannot form a phrase, batch title reads,
+cap prefixes at two characters in the MCP layer.
 
 ## Semantics worth knowing
 

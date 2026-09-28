@@ -10,10 +10,10 @@ Xapian: a reader, a search engine over the indexes embedded in every archive, a
 Markdown extractor, and an [MCP](https://modelcontextprotocol.io) server that lets AI
 agents search a whole directory of archives and read from them.
 
-Status: phases P0–P4 of [PLAN.md](PLAN.md) are implemented; notes with measurements are
-in [docs/](docs/). GPL-3.0-only, © Regis Boudinot. The Xapian glass reader and the ZIM
-format handling are derived from xapian-core and libzim (GPL-2.0-or-later); see
-[COPYRIGHT](COPYRIGHT) for the preserved notices.
+Status: phases P0–P4 are implemented; notes with measurements are in [docs/](docs/),
+open work in [PLAN.md](PLAN.md). GPL-3.0-or-later, © Regis Boudinot. The Xapian glass
+reader and the ZIM format handling are derived from xapian-core and libzim
+(GPL-2.0-or-later); see [COPYRIGHT](COPYRIGHT) for the preserved notices.
 
 ## Crates
 

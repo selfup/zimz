@@ -1,6 +1,6 @@
 # P4 — `zimz-search` + `zimz-mcp`: a library of archives, served to agents (2026-09-24)
 
-Scope: PLAN.md §6.6, §6.7, §7 P4. One directory of ZIM files becomes one searchable
+Scope: phase P4. One directory of ZIM files becomes one searchable
 library; an MCP server on stdio exposes it to AI agents with eight read-only tools and
 `zim://` resources.
 
