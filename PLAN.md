@@ -12,7 +12,7 @@ are in `docs/`.
 - Serving kiwix-serve's HTTP API or UI (MCP + CLI only).
 - Public internet exposure: the HTTP transport is for local and LAN use with a bearer
   token (no TLS, no OAuth; put a reverse proxy in front if needed).
-- Video/image understanding.GPL-3.0-or-later
+- Video/image understanding.
 
 ---
 
@@ -55,7 +55,6 @@ are in `docs/`.
 ---
 
 ## 3. P5 — `zimz-index` built tier (tantivy) — deferred
-GPL-3.0-or-later
 Deferred: the embedded indexes cover every HTML page of the wiki-style archives. Worth
 building when JSON-app ZIMs (LibreTexts, YouTube, nautilus, whose embedded full-text
 indexes are near-empty) or real phrase/fuzzy/boolean search become a priority.
@@ -97,4 +96,3 @@ indexes are near-empty) or real phrase/fuzzy/boolean search become a priority.
 | Stemmer/tokenizer drift vs Xapian's Snowball snapshot → silent recall loss | Medium | Golden tests from Xapian (open item above); on zero postings for a stem, probe alternates (unstemmed, other Snowball revision); tier 2 as the escape hatch |
 | MCP spec churn | Low | rmcp handles version negotiation; keep the tool surface small and schema-snapshotted |
 | ZIM spec evolves (minor 4, new listings) | Low | Feature detection by dirent presence, not version numbers; follow testing-suite updates |
-GPL-3.0-or-laterGPL-3.0-or-laterGPL-3.0-or-laterGPL-3.0-or-later
