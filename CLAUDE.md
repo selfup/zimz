@@ -36,7 +36,7 @@ ffmpeg
 curl
 wget
 
-## Pyhton
+## Python
 
 Only use uv to install deps, and run python code.
 
