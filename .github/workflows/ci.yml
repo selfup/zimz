@@ -30,21 +30,7 @@ jobs:
       - name: Test pure-Rust codecs
         run: cargo test -p zimz-core --no-default-features --features zstd-pure,xz-pure
       - name: Validate the test builder's archives with python-libzim
-        run: |
-          cargo test -p zimz-core --test synthetic -- --ignored write_synthetic
-          uv run scripts/validate_synthetic.py
+        run: ./scripts/actions/validate_builder.sh
       - name: Search and suggestion parity against python-libzim (fixture)
-        run: |
-          mkdir -p target/parity
-          f=fixtures/zim-testing-suite/data/nons/wikipedia_en_climate_change_mini_2024-06.zim
-          uv run scripts/search_parity.py "$f" -o target/parity/search-climate.json
-          ZIMZ_SEARCH_PARITY=target/parity/search-climate.json cargo test -p zimz-glass --test search_parity
-          uv run scripts/suggest_parity.py "$f" -o target/parity/suggest-climate.json
-          ZIMZ_SUGGEST_PARITY=target/parity/suggest-climate.json cargo test -p zimz-glass --test suggest_parity
-      - name: Parity against python-libzim (fixtures)
-        run: |
-          mkdir -p target/parity
-          for f in nons/wikipedia_en_climate_change_mini_2024-06 withns/wikibooks_be_all_nopic_2017-02 noTitleListingV0/small; do
-            uv run scripts/parity.py "fixtures/zim-testing-suite/data/$f.zim" --count 500 --seed 1 -o "target/parity/$(basename "$f").json"
-            ZIMZ_PARITY_MANIFEST="target/parity/$(basename "$f").json" cargo test -p zimz-core --test parity
-          done
+        run: ./scripts/actions/search_and_suggest.sh
+        run: ./scripts/actions/parity.sh
