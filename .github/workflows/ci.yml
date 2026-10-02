@@ -28,7 +28,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Test pure-Rust codecs
-        run: cargo test -p zimz-core --no-default-features --features zstd-pure,xz-pure
+        run: ./scripts/actions/pure_rust_codecs.sh
       - name: Validate the test builder's archives with python-libzim
         run: ./scripts/actions/validate_builder.sh
       - name: Search and suggestion parity against python-libzim (fixture)
