@@ -19,6 +19,7 @@ zimz-search = { path = "crates/zimz-search" }
 zimz-mcp = { path = "crates/zimz-mcp" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env"] }
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 liblzma = { version = "0.4", features = ["static"] }
 lru = "0.18"

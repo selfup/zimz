@@ -46,9 +46,10 @@ are in `docs/`.
 - Run the `fuzz/` targets for 1 h (needs a nightly toolchain and `cargo-fuzz`).
 - Tokenizer/normaliser golden tests generated from Xapian for en/fr/de/es and a CJK sample
   (today's analyzer tests are hand-written).
-- criterion benchmarks for lookup/decode/query, and a script that runs the latency targets
-  from `docs/P1-core-reader.md` and `docs/P2-glass-reader.md` against `~/zims` and writes
-  `docs/bench-<date>.md`.
+- criterion benchmarks: the reader hot paths (open, entry/path/title lookup, cold and
+  cached item reads) are covered by `cargo bench -p zimz-core --bench reader`. Query and
+  extraction benches (`zimz-glass`, `zimz-extract`, `zimz-search`) still only have the
+  `scripts/bench.sh` harness.
 - Optional: spot-check ranking against kiwix-serve in Docker
   (`ghcr.io/kiwix/kiwix-tools`, `/search?format=xml`).
 

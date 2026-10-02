@@ -47,7 +47,10 @@ fn exercise(archive: &Archive) {
         }
     }
     assert!(items > 0 && bytes > 0);
-    assert!(integrity::run(archive, &Check::ALL).is_empty());
+    assert_eq!(
+        integrity::run(archive, &Check::ALL),
+        [] as [integrity::Problem; 0]
+    );
 
     if archive.title_index() != TitleIndex::None {
         let mut prev: Option<(u8, String)> = None;

@@ -162,7 +162,7 @@ fn docdata_and_values() {
                 .value_string(did, title_slot)
                 .unwrap()
                 .unwrap_or_else(|| panic!("{flavour}: title of {did}"));
-            assert!(!title.is_empty());
+            assert_ne!(title, "");
             let wc = db
                 .value_string(did, wc_slot)
                 .unwrap()
@@ -390,7 +390,7 @@ fn search_and_or_match_set_algebra() {
         .total as usize,
         sa.len()
     );
-    assert!(
+    assert_eq!(
         search(
             &db,
             &Query::from_terms(Vec::<String>::new(), Op::And),
@@ -398,8 +398,8 @@ fn search_and_or_match_set_algebra() {
             10
         )
         .unwrap()
-        .hits
-        .is_empty()
+        .hits,
+        [] as [zimz_glass::Hit; 0]
     );
 }
 

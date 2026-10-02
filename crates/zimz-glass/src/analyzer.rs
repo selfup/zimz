@@ -370,7 +370,7 @@ mod tests {
             ["wordbreak"],
             "zero-width space is ignored inside a word"
         );
-        assert!(a.tokenize("   ...  ").is_empty());
+        assert_eq!(a.tokenize("   ...  "), [] as [String; 0]);
     }
 
     #[test]

@@ -212,7 +212,9 @@ async fn read_article_outline_links_suggest_and_health() {
     )
     .await;
     let s = r.structured_content.as_ref().unwrap();
-    assert!(!s["sections"].as_array().unwrap().is_empty());
+    let sections = s["sections"].as_array().unwrap();
+    let empty: Vec<Value> = Vec::new();
+    assert_ne!(sections, &empty);
 
     let r = call(
         &client,

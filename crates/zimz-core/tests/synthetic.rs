@@ -468,7 +468,10 @@ fn compressed_archive_mixes_direct_and_cached_blobs() {
         a.direct_access(&listing).unwrap().is_some(),
         "listings are always uncompressed"
     );
-    assert!(integrity::run(&a, &Check::ALL).is_empty());
+    assert_eq!(
+        integrity::run(&a, &Check::ALL),
+        [] as [integrity::Problem; 0]
+    );
     assert!(a.cluster_cache_stats().0 >= 1);
 }
 
@@ -605,7 +608,10 @@ fn huge_dirents_are_read_through_the_widest_window() {
     let e = a.entry_by_path(b'C', &path).unwrap().unwrap();
     assert_eq!(e.title(), title);
     assert_eq!(a.entry_by_title(&title).unwrap().unwrap().index, e.index);
-    assert!(integrity::run(&a, &Check::ALL).is_empty());
+    assert_eq!(
+        integrity::run(&a, &Check::ALL),
+        [] as [integrity::Problem; 0]
+    );
 }
 
 #[test]
@@ -756,7 +762,10 @@ fn each_integrity_check_catches_its_own_corruption() {
     let p = integrity::run(&a, &[Check::Clusters]);
     assert_eq!(p[0].check, Check::Clusters);
     assert!(matches!(a.cluster(0), Err(Error::Corrupt(_))));
-    assert!(integrity::run(&a, &[Check::DirentOrder, Check::ClusterPointers]).is_empty());
+    assert_eq!(
+        integrity::run(&a, &[Check::DirentOrder, Check::ClusterPointers]),
+        [] as [integrity::Problem; 0]
+    );
 }
 
 #[test]
@@ -822,7 +831,10 @@ fn illustration_and_favicon_fallback() {
         Some(png),
         "old scheme falls back to -/favicon"
     );
-    assert!(old.illustration_sizes().unwrap().is_empty());
+    assert_eq!(
+        old.illustration_sizes().unwrap(),
+        [] as [zimz_core::metadata::IllustrationInfo; 0]
+    );
     let none = open_bytes(ZimBuilder::new_scheme().html("H", "H", "h").build()).unwrap();
     assert_eq!(none.illustration(48, 48, 1.0).unwrap(), None);
 }
@@ -919,7 +931,10 @@ fn split_archive_from_temp_parts_equals_whole() {
                 );
             }
         }
-        assert!(integrity::run(&split, &Check::ALL).is_empty());
+        assert_eq!(
+            integrity::run(&split, &Check::ALL),
+            [] as [integrity::Problem; 0]
+        );
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }

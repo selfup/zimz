@@ -221,7 +221,7 @@ mod tests {
                 .collect();
             assert_eq!(decoded, c, "packed {packed:?}");
         }
-        assert!(decode_positions(b"").unwrap().is_empty());
+        assert_eq!(decode_positions(b"").unwrap(), [] as [u32; 0]);
         assert!(decode_positions(&[0x85]).is_err(), "truncated varint");
     }
 

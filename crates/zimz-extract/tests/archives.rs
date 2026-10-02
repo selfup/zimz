@@ -139,7 +139,7 @@ fn local_library_samples() {
             .len();
             let d = extract(&a, &e, adapter, None).unwrap();
             assert!(d.word_count > 50, "{file} {p}: only {} words", d.word_count);
-            assert!(!d.title.is_empty());
+            assert_ne!(d.title, "");
             let kept = d.text.len() as f64 / raw_text_len.max(1) as f64;
             eprintln!(
                 "{file} {p}: {adapter:?} title={:?} words={} sections={} links={} kept {:.0}% of the raw text",

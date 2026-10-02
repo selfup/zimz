@@ -796,10 +796,10 @@ mod tests {
         );
         let (plain, phrases) = split_phrases(r#"unbalanced "quote here"#);
         assert_eq!(plain, "unbalanced quote here");
-        assert!(phrases.is_empty());
+        assert_eq!(phrases, [] as [String; 0]);
         let (plain, phrases) = split_phrases("\"\" empty");
         assert_eq!(plain, "empty");
-        assert!(phrases.is_empty());
+        assert_eq!(phrases, [] as [String; 0]);
     }
 
     #[test]
