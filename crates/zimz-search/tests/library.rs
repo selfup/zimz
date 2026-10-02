@@ -488,7 +488,7 @@ fn read_article_windows_sections_and_path_forms() {
     req.offset = 500;
     let r2 = lib.read_article(&req).unwrap();
     assert_eq!(r2.offset, 500);
-    assert!(!r2.content.is_empty());
+    assert_ne!(r2.content, "");
     assert_ne!(r2.content, r.content);
 
     // Whole article in one go: no outline, no next offset.
@@ -693,7 +693,7 @@ fn health_reports_indexes_caches_and_failures() {
         })
         .unwrap();
     assert_eq!(full.archives[0].checksum, "ok");
-    assert!(full.archives[0].problems.is_empty());
+    assert_eq!(full.archives[0].problems, [] as [String; 0]);
 }
 
 #[test]

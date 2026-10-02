@@ -83,7 +83,7 @@ mod tests {
             parse_counter("text/html;raw=true=5;text/plain=1"),
             vec![("text/html;raw=true".into(), 5), ("text/plain".into(), 1)]
         );
-        assert!(parse_counter("").is_empty());
+        assert_eq!(parse_counter(""), [] as [(String, u64); 0]);
     }
 
     #[test]
@@ -116,7 +116,7 @@ mod more_tests {
             vec![("text/html".into(), 5)],
             "empty leading chunks are dropped"
         );
-        assert!(parse_counter("text/html").is_empty());
+        assert_eq!(parse_counter("text/html"), [] as [(String, u64); 0]);
         assert!(parse_counter("=5").is_empty(), "empty mimetype");
         assert!(parse_counter("text/html=").is_empty(), "empty count");
         assert!(

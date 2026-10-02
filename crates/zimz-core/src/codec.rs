@@ -108,10 +108,9 @@ mod tests {
             decode_to_vec(Compression::None, &b"abcd"[..], 3),
             Err(Error::ClusterTooLarge { size: 4, limit: 3 })
         ));
-        assert!(
-            decode_to_vec(Compression::None, &b""[..], 0)
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            decode_to_vec(Compression::None, &b""[..], 0).unwrap(),
+            [] as [u8; 0]
         );
         assert!(matches!(
             decode_to_vec(Compression::Zlib, &b"x"[..], 10),
