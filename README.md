@@ -112,6 +112,13 @@ scripts/fetch-fixtures.sh            # openzim/zim-testing-suite samples (gitign
 cargo test --workspace               # unit, fixture, property and MCP end-to-end tests
 ZIMZ_TEST_ZIM_DIR=~/zims cargo test --workspace   # also the local-library tests
 uv run scripts/search_parity.py …    # python-libzim oracles (see docs/P2-glass-reader.md)
+scripts/bench.sh ~/zims              # all three bench harnesses -> docs/bench-<date>.md
+cargo bench -p zimz-core             # criterion micro-benches (self-contained, no fixtures)
 ```
 
 `cargo clippy --workspace --all-targets -- -D warnings` must stay clean.
+The bench harnesses themselves are `crates/zimz-core/examples/bench.rs`,
+`crates/zimz-search/examples/profile.rs` and `scripts/bench_compare.py`; `bench.sh` runs
+all three and writes a dated report (see `docs/bench-2026-10-01.md`).
+`crates/zimz-core/benches/reader.rs` adds criterion micro-benches over an archive built
+in memory by the test builder, so `cargo bench` needs neither fixtures nor `~/zims`.
