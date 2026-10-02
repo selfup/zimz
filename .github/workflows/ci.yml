@@ -33,4 +33,5 @@ jobs:
         run: ./scripts/actions/validate_builder.sh
       - name: Search and suggestion parity against python-libzim (fixture)
         run: ./scripts/actions/search_and_suggest.sh
+      - name: Parity
         run: ./scripts/actions/parity.sh
