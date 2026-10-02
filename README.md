@@ -109,7 +109,7 @@ zimz check   file.zim --checksum
 
 ```sh
 scripts/fetch-fixtures.sh            # openzim/zim-testing-suite samples (gitignored; needs uv)
-cargo test --workspace               # unit, fixture, property and MCP end-to-end tests
+cargo test --workspace               # unit, fixture, property, CLI and MCP end-to-end tests
 ZIMZ_TEST_ZIM_DIR=~/zims cargo test --workspace   # also the local-library tests
 uv run scripts/search_parity.py …    # python-libzim oracles (see docs/P2-glass-reader.md)
 scripts/bench.sh ~/zims              # all three bench harnesses -> docs/bench-<date>.md
