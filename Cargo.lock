@@ -2356,6 +2356,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "tempfile",
  "zimz-core",
  "zimz-extract",
  "zimz-glass",
