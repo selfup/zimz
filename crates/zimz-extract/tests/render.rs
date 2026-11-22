@@ -62,7 +62,7 @@ fn inline_markup_links_and_images() {
     let d = extract_html(html, Adapter::Generic, None, &opts());
     assert_eq!(
         d.markdown,
-        "See [the **other** page](zim://wiki/Other_Page), [x.org](https://x.org/), [below](#Sec) and *this* `code` ~~gone~~.\n\n![An image]\n\njs [enc](zim://wiki/Encóded#frag)\n"
+        "See [the **other** page](zim://wiki/Other_Page), [x.org](https://x.org/), [below](#Sec) and *this* `code` ~~gone~~.\n\n![An image]\n\njs [enc](zim://wiki/Enc%C3%B3ded#frag)\n"
     );
     assert_eq!(
         d.text,
@@ -200,6 +200,41 @@ fn math_and_summary() {
     assert_eq!(
         d.markdown,
         "Let $a^2+b^2=c^2$ hold.\n\n**More**\n\nhidden text\n"
+    );
+}
+
+#[test]
+fn wiki_math_keeps_one_representation_and_preserves_image_only_formulas() {
+    let html = r#"<p><span class="mwe-math-element"><span><math alttext="x+y"></math></span><img class="mwe-math-fallback-image-inline" alt="x+y"></span> then <span class="mwe-math-element"><math alttext=" "></math><img class="mwe-math-fallback-image-inline" alt="z"></span></p>"#;
+    let d = extract_html(html, Adapter::MwOffliner, None, &opts());
+    assert_eq!(d.markdown.trim(), "$x+y$ then ![z]");
+    assert_eq!(d.text.trim(), "x+y then z");
+}
+
+#[test]
+fn section_anchors_preserve_source_ids_and_distinguish_duplicates() {
+    let html = r#"<h2>Examples</h2><h2 id="Examples">Second</h2><h2>Examples</h2><h2><span class="mw-headline" id="Real_ID">Other heading</span></h2>"#;
+    let d = extract_html(html, Adapter::Generic, None, &opts());
+    let anchors: Vec<_> = d.sections.iter().map(|s| s.anchor.as_str()).collect();
+    assert_eq!(anchors, ["Examples_2", "Examples", "Examples_3", "Real_ID"]);
+    for (i, anchor) in anchors.iter().enumerate() {
+        assert_eq!(d.find_anchor(anchor), Some(i));
+    }
+    assert_eq!(d.find_anchor("Other_heading"), Some(3));
+}
+
+#[test]
+fn libretexts_chapter_titles_link_to_archived_pages() {
+    let html = r##"<ul><li data-page-id="9714"><dl><dt><a href="#/Bookshelves/Logic/Introduction">Introduction</a></dt><dd><a href="#note">Note</a></dd></dl></li></ul>"##;
+    let d = extract_html(html, Adapter::LibreTexts, None, &opts());
+    assert!(
+        d.markdown
+            .contains("[Introduction](zim://wiki/index/page_9714)")
+    );
+    assert!(d.markdown.contains("[Note](#note)"));
+    assert_eq!(
+        d.internal_links(true),
+        vec![("Introduction".into(), "index/page_9714".into())]
     );
 }
 

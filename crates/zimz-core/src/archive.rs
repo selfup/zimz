@@ -708,8 +708,7 @@ impl Archive {
     pub fn counter(&self) -> Result<Vec<(String, u64)>> {
         Ok(self
             .metadata_string("Counter")?
-            .map(|s| parse_counter(&s))
-            .unwrap_or_default())
+            .map_or_default(|s| parse_counter(&s)))
     }
 
     pub fn illustration_sizes(&self) -> Result<Vec<IllustrationInfo>> {

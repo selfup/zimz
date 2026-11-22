@@ -107,9 +107,11 @@ fn bench_lookup(c: &mut Criterion) {
 fn bench_item_read(c: &mut Criterion) {
     let mut group = c.benchmark_group("item_read");
 
-    let mut codecs = vec![("none", Codec::None)];
-    #[cfg(feature = "zstd-c")]
-    codecs.push(("zstd", Codec::Zstd));
+    let codecs = [
+        ("none", Codec::None),
+        #[cfg(feature = "zstd-c")]
+        ("zstd", Codec::Zstd),
+    ];
 
     // Warm: one archive, every cluster decoded once before the timed loop.
     for (name, codec) in &codecs {

@@ -10,9 +10,45 @@ use crate::links::LinkTarget;
 pub struct Section {
     pub level: u8,
     pub title: String,
+    /// Unique, decoded URI fragment for this heading.
+    pub anchor: String,
     /// Byte range in `Document::markdown`, starting at the heading line.
     pub start: usize,
     pub end: usize,
+}
+
+/// Keep source IDs when available, and generate unique fragments for other headings.
+pub(crate) fn assign_anchors(sections: &mut [Section]) {
+    use std::collections::{HashMap, HashSet};
+
+    let reserved: HashSet<String> = sections
+        .iter()
+        .filter(|s| !s.anchor.is_empty())
+        .map(|s| s.anchor.clone())
+        .collect();
+    let mut used = HashSet::new();
+    let mut suffixes = HashMap::new();
+    for section in sections {
+        let explicit = !section.anchor.is_empty();
+        let base = if explicit {
+            std::mem::take(&mut section.anchor)
+        } else {
+            section.title.replace(' ', "_")
+        };
+        if (explicit || !reserved.contains(&base)) && used.insert(base.clone()) {
+            section.anchor = base;
+            continue;
+        }
+        let suffix = suffixes.entry(base.clone()).or_insert(2);
+        loop {
+            let candidate = format!("{base}_{suffix}");
+            *suffix += 1;
+            if !reserved.contains(&candidate) && used.insert(candidate.clone()) {
+                section.anchor = candidate;
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +81,17 @@ pub struct Document {
 }
 
 impl Document {
+    /// Resolve a decoded citation fragment; also accept older title-based citations.
+    pub fn find_anchor(&self, fragment: &str) -> Option<usize> {
+        self.sections
+            .iter()
+            .position(|s| s.anchor == fragment)
+            .or_else(|| {
+                self.sections
+                    .iter()
+                    .position(|s| s.title.replace(' ', "_") == fragment)
+            })
+    }
     pub fn outline(&self) -> Vec<OutlineEntry> {
         self.sections
             .iter()

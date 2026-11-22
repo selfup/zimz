@@ -125,9 +125,7 @@ impl ArchiveInfo {
     /// counts and `search_mode` are filled in by the library afterwards.
     pub fn read(archive: &Archive, file: &Path, adapter: &str) -> Result<Self> {
         let header = archive.header();
-        let (tags, system) = meta(archive, "Tags")
-            .map(|t| parse_tags(&t))
-            .unwrap_or_default();
+        let (tags, system) = meta(archive, "Tags").map_or_default(|t| parse_tags(&t));
         let category = system
             .iter()
             .find(|(k, _)| k == "category")
@@ -225,8 +223,7 @@ pub fn sanitize_name(raw: &str) -> String {
 pub fn file_stem_name(file: &Path) -> String {
     let stem = file
         .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string_lossy().into_owned());
     let stem = stem
         .strip_suffix(".zimaa")
         .or_else(|| stem.strip_suffix(".zim"))

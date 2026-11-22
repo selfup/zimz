@@ -84,8 +84,7 @@ fn scan_and_soak_local_library() {
                     res.total_estimate,
                     res.hits
                         .first()
-                        .map(|h| format!("{} [{}]", h.title, h.archive))
-                        .unwrap_or_default()
+                        .map_or_default(|h| format!("{} [{}]", h.title, h.archive))
                 );
             }
         }

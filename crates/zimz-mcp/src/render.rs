@@ -86,9 +86,7 @@ pub fn search(r: &SearchResponse) -> String {
             h.score,
             h.percent,
             if h.partial { ", partial" } else { "" },
-            h.word_count
-                .map(|w| format!(", {w} words"))
-                .unwrap_or_default()
+            h.word_count.map_or_default(|w| format!(", {w} words"))
         );
         if let Some(s) = &h.snippet {
             let _ = writeln!(out, "   {s}");
@@ -106,9 +104,23 @@ pub fn article(r: &ArticleResponse) -> String {
     if let Some(from) = &r.redirected_from {
         let _ = writeln!(out, "(redirected from {from})");
     }
-    if let Some(s) = &r.section {
-        let _ = writeln!(out, "(section: {s})");
+    if !r.passages.is_empty() {
+        for passage in &r.passages {
+            let _ = writeln!(
+                out,
+                "\n{}\n\n{}\nSource: {}",
+                passage.section, passage.content, passage.uri
+            );
+            if let Some(offset) = passage.next_offset {
+                let _ = writeln!(out, "[continue this passage with offset={offset}]");
+            }
+        }
+        return out;
     }
+    if let Some(section) = &r.section {
+        let _ = writeln!(out, "(section: {section})");
+    }
+    let _ = writeln!(out, "Source: {}", r.uri);
     out.push('\n');
     out.push_str(&r.content);
     if !out.ends_with('\n') {
@@ -144,11 +156,12 @@ pub fn outline(r: &OutlineResponse) -> String {
     for s in &r.sections {
         let _ = writeln!(
             out,
-            "{:>3}. {}{} ({} chars)",
+            "{:>3}. {}{} ({} chars) {}",
             s.index,
             "  ".repeat(usize::from(s.level.saturating_sub(1))),
             s.title,
-            s.chars
+            s.chars,
+            s.uri
         );
     }
     out
@@ -246,12 +259,9 @@ pub fn health(r: &HealthResponse) -> String {
             a.article_count,
             if a.has_fulltext_index { "yes" } else { "no" },
             a.fulltext_coverage
-                .map(|c| format!(" (coverage {:.0}%)", c * 100.0))
-                .unwrap_or_default(),
+                .map_or_default(|c| format!(" (coverage {:.0}%)", c * 100.0)),
             if a.has_title_index { "yes" } else { "no" },
-            a.title_docs
-                .map(|d| format!(" ({d} docs)"))
-                .unwrap_or_default(),
+            a.title_docs.map_or_default(|d| format!(" ({d} docs)")),
             if a.has_title_listing { "yes" } else { "no" },
             a.checksum,
             a.cluster_cache.hits,

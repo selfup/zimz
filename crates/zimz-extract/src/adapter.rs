@@ -5,6 +5,9 @@
 //! the JSON records that app-style scrapers store instead of HTML.
 
 use std::fmt::Write as _;
+use std::sync::LazyLock;
+
+use scraper::{ElementRef, Html, Selector, node::Node};
 
 use zimz_core::{Archive, Dirent};
 
@@ -188,6 +191,38 @@ fn word_count(text: &str) -> usize {
     text.split_whitespace().count()
 }
 
+/// MindTouch chapter lists put a client-side route in href and the ZIM page ID
+/// on the list item. Translate the title link before extracting text and links.
+fn resolve_chapter_links(doc: &mut Html) {
+    static TITLES: LazyLock<Selector> =
+        LazyLock::new(|| Selector::parse("li[data-page-id] > dl > dt a[href^='#/']").unwrap());
+    let links: Vec<_> = doc
+        .select(&TITLES)
+        .filter_map(|link| {
+            let id = link
+                .ancestors()
+                .filter_map(ElementRef::wrap)
+                .find(|el| el.value().name() == "li")?
+                .attr("data-page-id")?;
+            if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            Some((link.id(), format!("/index/page_{id}")))
+        })
+        .collect();
+    for (id, path) in links {
+        if let Some(mut node) = doc.tree.get_mut(id)
+            && let Node::Element(el) = node.value()
+            && let Some((_, href)) = el
+                .attrs
+                .iter_mut()
+                .find(|(k, _)| k.local.as_ref() == "href")
+        {
+            *href = path.into();
+        }
+    }
+}
+
 /// Render an HTML string with an adapter's rules.
 pub fn extract_html(
     html: &str,
@@ -195,7 +230,10 @@ pub fn extract_html(
     title_hint: Option<&str>,
     opts: &RenderOptions<'_>,
 ) -> Document {
-    let doc = prepare(html, adapter.content_selectors(), adapter.prune_selectors());
+    let mut doc = prepare(html, adapter.content_selectors(), adapter.prune_selectors());
+    if adapter == Adapter::LibreTexts {
+        resolve_chapter_links(&mut doc);
+    }
     let root = content_root(&doc, adapter.content_selectors());
     let md = render(root, opts, true);
     let txt = render(root, opts, false);
@@ -319,6 +357,7 @@ fn markdown_sections(md: &str) -> Vec<crate::document::Section> {
             sections.push(crate::document::Section {
                 level: 2,
                 title: t.trim_end().to_string(),
+                anchor: String::new(),
                 start: offset,
                 end: md.len(),
             });
@@ -330,6 +369,7 @@ fn markdown_sections(md: &str) -> Vec<crate::document::Section> {
             sections[i].end = sections[i + 1].start;
         }
     }
+    crate::document::assign_anchors(&mut sections);
     sections
 }
 
@@ -398,12 +438,11 @@ fn youtube_document(
     let mut langs: Vec<String> = v
         .get("subtitleList")
         .and_then(|l| l.as_array())
-        .map(|l| {
+        .map_or_default(|l| {
             l.iter()
                 .filter_map(|x| x.get("code").and_then(|c| c.as_str()).map(str::to_string))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     langs.sort_by_key(|l| (!l.starts_with("en"), l.clone()));
     for lang in langs.into_iter().take(1) {
         let path = format!("videos/{id}/video.{lang}.vtt");

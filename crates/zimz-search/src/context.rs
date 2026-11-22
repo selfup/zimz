@@ -4,6 +4,7 @@
 //! One-call retrieval: search, pick the most relevant section of each hit, and pack
 //! the excerpts under a character budget with citations.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::time::Instant;
 
@@ -11,8 +12,9 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use zimz_extract::Document;
 
+use crate::article::section_uri;
 use crate::library::Library;
-use crate::search::{ModeSelect, SearchRequest};
+use crate::search::{ModeSelect, SearchRequest, normalise, split_phrases};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,81 +96,88 @@ pub struct ContextResponse {
 }
 
 struct Pick {
-    section: Option<String>,
+    section: Option<usize>,
     text: String,
     matched: usize,
 }
 
-/// Candidate windows: the lead (before the first heading), each section, or the whole
-/// document when it has no headings. The most specific section with the most matched
-/// terms wins; ties go to the earliest.
+fn matched_terms(text: &str, matcher: &dyn Fn(&str) -> Option<usize>) -> HashSet<usize> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\''))
+        .filter(|word| !word.is_empty())
+        .filter_map(matcher)
+        .collect()
+}
+
+/// Score each heading with its own body so descendant passages cite their own heading.
 fn best_excerpt(
     doc: &Document,
     matcher: &dyn Fn(&str) -> Option<usize>,
     max_chars: usize,
+    title_lookup: bool,
 ) -> Option<Pick> {
-    let mut candidates: Vec<(Option<String>, u8, &str)> = Vec::new();
-    if doc.sections.is_empty() {
-        candidates.push((None, 0, doc.markdown.as_str()));
-    } else {
-        let lead = &doc.markdown[..doc.sections[0].start];
-        if !lead.trim().is_empty() {
-            candidates.push((None, 0, lead));
-        }
-        for (i, s) in doc.sections.iter().enumerate() {
-            if let Some(md) = doc.section_markdown(i) {
-                candidates.push((Some(s.title.clone()), s.level, md));
-            }
-        }
-    }
-    let mut best: Option<(usize, u8, usize, Pick)> = None; // (matched, level, order, pick)
-    for (order, (section, level, md)) in candidates.into_iter().enumerate() {
-        // Skip the heading line itself so the window is body text.
-        let body = match section {
-            Some(_) => md.split_once('\n').map_or("", |(_, rest)| rest),
-            None => md,
-        };
+    let end = doc.sections.first().map_or(doc.markdown.len(), |s| s.start);
+    let lead = (None, &doc.markdown[..end]);
+    let sections = doc.sections.iter().enumerate().map(|(i, section)| {
+        let end = doc
+            .sections
+            .get(i + 1)
+            .map_or(doc.markdown.len(), |s| s.start);
+        let md = &doc.markdown[section.start..end];
+        (Some(i), md.split_once('\n').map_or("", |(_, body)| body))
+    });
+    let mut best = None;
+    let mut best_score = (0, 0, 0);
+    for (index, body) in std::iter::once(lead).chain(sections) {
         let body = body.trim();
         if body.is_empty() {
             continue;
         }
-        let snip = zimz_extract::best_snippet_with(body, matcher, max_chars, None, false);
-        let text = snip.text.trim().to_string();
-        if text.is_empty() {
-            continue;
+        if title_lookup {
+            let text = trim_chars(body, max_chars);
+            return Some(Pick {
+                section: index,
+                matched: matched_terms(&text, matcher).len(),
+                text,
+            });
         }
-        let better = match &best {
-            None => true,
-            // Prefer the most specific section, but only among sections that
-            // actually match something; otherwise the lead wins.
-            Some((m, l, _, _)) => {
-                snip.matched_terms > *m || (snip.matched_terms == *m && *m > 0 && level > *l)
+        let snip = zimz_extract::best_snippet_with(body, matcher, max_chars, None, false);
+        let mut terms = matched_terms(&snip.text, matcher);
+        let matched = terms.len();
+        let mut heading_count = 0;
+        let mut depth = 0;
+        if let Some(i) = index {
+            let section = &doc.sections[i];
+            let heading = matched_terms(&section.title, matcher);
+            heading_count = heading.len();
+            terms.extend(heading);
+            if !terms.is_empty() {
+                depth = section.level;
             }
-        };
-        if better {
-            best = Some((
-                snip.matched_terms,
-                level,
-                order,
-                Pick {
-                    section,
-                    text,
-                    matched: snip.matched_terms,
-                },
-            ));
+        }
+        let score = (terms.len(), heading_count, depth);
+        if best.is_none() || score > best_score {
+            best = Some(Pick {
+                section: index,
+                text: snip.text,
+                matched,
+            });
+            best_score = score;
         }
     }
-    best.map(|(_, _, _, p)| p)
+    best
 }
 
 /// Cut `text` to `max_chars` characters at a word boundary.
 fn trim_chars(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
     if text.chars().count() <= max_chars {
         return text.to_string();
     }
     let end = text
         .char_indices()
-        .nth(max_chars)
+        .nth(max_chars - 1)
         .map_or(text.len(), |(i, _)| i);
     let cut = &text[..end];
     let cut = cut.rfind(char::is_whitespace).map_or(cut, |i| &cut[..i]);
@@ -192,13 +201,13 @@ pub fn render_markdown(response: &ContextResponse) -> String {
     out
 }
 
-type Picked = Result<Option<(Pick, String)>, String>;
+type Picked = Result<Option<Excerpt>, String>;
 
 impl Library {
-    /// Extract every hit and choose its best excerpt, in parallel. Each entry is the
-    /// pick plus the document title, `Ok(None)` when the article has no text, or a
-    /// warning string.
+    /// Extract and cite one passage per hit in rank order. Empty documents are skipped.
     fn pick_excerpts(&self, hits: &[crate::SearchHit], query: &str, per_hit: usize) -> Vec<Picked> {
+        let (query, _) = split_phrases(query);
+        let title_query = normalise(&query);
         hits.par_iter()
             .map(|hit| {
                 let idx = self
@@ -212,12 +221,36 @@ impl Library {
                     .document_for_snippet(idx, &resolved.dirent)
                     .map_err(|e| format!("{}: {e}", hit.uri))?;
                 let analyzer = slot.analyzer();
-                let stems = analyzer.terms(query);
+                let stems = analyzer.terms(&query);
                 let matcher = |word: &str| {
                     let s = analyzer.terms(word);
                     s.first().and_then(|w| stems.iter().position(|t| t == w))
                 };
-                Ok(best_excerpt(&doc, &matcher, per_hit).map(|p| (p, doc.title.clone())))
+                let title = if doc.title.is_empty() {
+                    &hit.title
+                } else {
+                    &doc.title
+                };
+                let title_lookup =
+                    normalise(title) == title_query || normalise(&hit.title) == title_query;
+                let uri = slot.uri(&resolved.path);
+                Ok(
+                    best_excerpt(&doc, &matcher, per_hit, title_lookup).map(|p| {
+                        let section = p.section.map(|i| &doc.sections[i]);
+                        Excerpt {
+                            archive: hit.archive.clone(),
+                            path: resolved.path,
+                            title: title.clone(),
+                            uri: section
+                                .map_or_else(|| uri.clone(), |s| section_uri(&uri, &s.anchor)),
+                            section: section.map(|s| s.title.clone()),
+                            score: hit.score,
+                            chars: p.text.chars().count(),
+                            text: p.text,
+                            matched_terms: p.matched,
+                        }
+                    }),
+                )
             })
             .collect()
     }
@@ -229,8 +262,8 @@ impl Library {
             return Err(Error::Invalid("query is empty".into()));
         }
         let max_hits = req.max_hits.clamp(1, 20);
-        let per_hit = req.per_hit_chars.clamp(100, 20_000);
-        let budget = req.budget_chars.max(per_hit.min(500));
+        let budget = req.budget_chars;
+        let per_hit = req.per_hit_chars.min(20_000).min(budget);
         let search = self.search(&SearchRequest {
             query: req.query.clone(),
             archives: req.archives.clone(),
@@ -242,16 +275,20 @@ impl Library {
             or_fallback: true,
         })?;
         let mut warnings = search.warnings.clone();
-        let picks = self.pick_excerpts(&search.hits, &req.query, per_hit);
+        let picks = if per_hit == 0 {
+            Vec::new()
+        } else {
+            self.pick_excerpts(&search.hits, &req.query, per_hit)
+        };
         let mut excerpts: Vec<Excerpt> = Vec::new();
         let mut used = 0usize;
         let mut considered = 0usize;
-        for (hit, picked) in search.hits.iter().zip(picks) {
+        for picked in picks {
             if excerpts.len() >= max_hits || used >= budget {
                 break;
             }
             considered += 1;
-            let (pick, doc_title) = match picked {
+            let mut excerpt = match picked {
                 Ok(Some(p)) => p,
                 Ok(None) => continue,
                 Err(w) => {
@@ -260,35 +297,24 @@ impl Library {
                 }
             };
             let remaining = budget - used;
-            let text = if pick.text.chars().count() > remaining {
+            if excerpt.chars > remaining {
                 if remaining < 200 {
                     break;
                 }
-                trim_chars(&pick.text, remaining)
-            } else {
-                pick.text
-            };
-            let chars = text.chars().count();
-            used += chars;
-            let uri = match &pick.section {
-                Some(s) => format!("{}#{}", hit.uri, s.replace(' ', "_")),
-                None => hit.uri.clone(),
-            };
-            excerpts.push(Excerpt {
-                archive: hit.archive.clone(),
-                path: hit.path.clone(),
-                title: if doc_title.is_empty() {
-                    hit.title.clone()
-                } else {
-                    doc_title
-                },
-                section: pick.section,
-                uri,
-                score: hit.score,
-                text,
-                chars,
-                matched_terms: pick.matched,
-            });
+                excerpt.text = trim_chars(&excerpt.text, remaining);
+                excerpt.chars = excerpt.text.chars().count();
+                let analyzer = self.get(&excerpt.archive)?.analyzer();
+                let stems = analyzer.terms(&req.query);
+                excerpt.matched_terms = matched_terms(&excerpt.text, &|word| {
+                    analyzer
+                        .terms(word)
+                        .first()
+                        .and_then(|w| stems.iter().position(|s| s == w))
+                })
+                .len();
+            }
+            used += excerpt.chars;
+            excerpts.push(excerpt);
         }
         Ok(ContextResponse {
             query: req.query.trim().to_string(),
@@ -316,6 +342,7 @@ mod tests {
             let start = md.find(&needle).expect("heading present");
             secs.push(Section {
                 level,
+                anchor: title.replace(' ', "_"),
                 title: title.to_string(),
                 start,
                 end: md.len(),
@@ -349,8 +376,8 @@ mod tests {
                 .iter()
                 .position(|t| w.to_lowercase() == *t)
         };
-        let p = best_excerpt(&d, &matcher, 200).unwrap();
-        assert_eq!(p.section.as_deref(), Some("Two"));
+        let p = best_excerpt(&d, &matcher, 200, false).unwrap();
+        assert_eq!(p.section, Some(1));
         assert_eq!(p.matched, 2);
         assert!(p.text.contains("Pears and apples"));
     }
@@ -359,7 +386,7 @@ mod tests {
     fn falls_back_to_lead_when_nothing_matches() {
         let md = "Lead text.\n\n## One\n\nBody.\n";
         let d = doc(md, vec![(2, "One")]);
-        let p = best_excerpt(&d, &|_| None, 200).unwrap();
+        let p = best_excerpt(&d, &|_| None, 200, false).unwrap();
         assert_eq!(p.section, None);
         assert_eq!(p.text, "Lead text.");
     }
@@ -368,14 +395,29 @@ mod tests {
     fn whole_document_without_headings() {
         let d = doc("Just a paragraph with apples.", vec![]);
         let matcher = |w: &str| (w.to_lowercase() == "apples").then_some(0);
-        let p = best_excerpt(&d, &matcher, 200).unwrap();
+        let p = best_excerpt(&d, &matcher, 200, false).unwrap();
         assert_eq!(p.matched, 1);
         assert_eq!(p.section, None);
+    }
+
+    #[test]
+    fn title_lookup_opens_at_the_lead_and_a_heading_can_win_a_focused_query() {
+        let d = doc(
+            "Gödel proved two theorems.\n\n## Rosser\n\nA stronger result.\n\n### History\n\nRosser discussed Gödel.\n",
+            vec![(2, "Rosser"), (3, "History")],
+        );
+        let title = best_excerpt(&d, &|w| (w == "Gödel").then_some(0), 100, true).unwrap();
+        assert_eq!(title.section, None);
+        assert!(title.text.starts_with("Gödel proved"));
+        let focused = best_excerpt(&d, &|w| (w == "Rosser").then_some(0), 100, false).unwrap();
+        assert_eq!(focused.section, Some(0));
+        assert_eq!(focused.text, "A stronger result.");
     }
 
     #[test]
     fn trim_respects_words() {
         assert_eq!(trim_chars("hello world again", 11), "hello…");
         assert_eq!(trim_chars("short", 11), "short");
+        assert_eq!(trim_chars("ééééé", 3), "éé…");
     }
 }
