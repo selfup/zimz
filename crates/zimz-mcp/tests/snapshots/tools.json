@@ -872,12 +872,16 @@
             },
             "title": {
               "type": "string"
+            },
+            "uri": {
+              "type": "string"
             }
           },
           "required": [
             "index",
             "level",
             "title",
+            "uri",
             "chars"
           ],
           "type": "object"
@@ -934,7 +938,7 @@
   },
   {
     "name": "read_article",
-    "description": "Read an article as Markdown (default), plain text or HTML, at most `max_chars` characters from `offset`. When the article is longer the response carries the outline; ask for one `section` (index or heading text) or continue from `next_offset`.",
+    "description": "Read an article or follow a cited passage by passing its zim:// URI as path. Select one section or compare several with sections (Markdown passages in request order sharing max_chars). Continue any passage with its URI and next_offset. Whole articles also support text and raw HTML.",
     "inputSchema": {
       "$defs": {
         "Format": {
@@ -960,6 +964,8 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "archive": {
+          "default": "",
+          "description": "Archive name; optional when path is a full zim:// citation.",
           "type": "string"
         },
         "format": {
@@ -991,10 +997,16 @@
             "string",
             "null"
           ]
+        },
+        "sections": {
+          "description": "Read these sections in order as Markdown passages sharing max_chars.\nContinue a passage by reading its URI with its next_offset.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
-        "archive",
         "path"
       ],
       "type": "object"
@@ -1043,13 +1055,56 @@
             },
             "title": {
               "type": "string"
+            },
+            "uri": {
+              "type": "string"
             }
           },
           "required": [
             "index",
             "level",
             "title",
+            "uri",
             "chars"
+          ],
+          "type": "object"
+        },
+        "Passage": {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "next_offset": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "offset": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "section": {
+              "type": "string"
+            },
+            "total_chars": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "section",
+            "uri",
+            "content",
+            "offset",
+            "total_chars"
           ],
           "type": "object"
         }
@@ -1100,6 +1155,13 @@
             "array",
             "null"
           ]
+        },
+        "passages": {
+          "description": "For a sections request, these passages carry the content and continuation offsets.",
+          "items": {
+            "$ref": "#/$defs/Passage"
+          },
+          "type": "array"
         },
         "path": {
           "description": "Canonical path of the article that was read (redirects resolved).",

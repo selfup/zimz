@@ -587,8 +587,7 @@ impl Library {
             let end = (offset + limit).min(ranked.len());
             let page: Vec<&Ranked> = ranked
                 .get(offset..end)
-                .map(|s| s.iter().collect())
-                .unwrap_or_default();
+                .map_or_default(|s| s.iter().collect());
             (page, (ranked.len() > end).then_some(end))
         } else {
             self.verified_page(

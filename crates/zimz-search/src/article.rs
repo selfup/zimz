@@ -3,8 +3,10 @@
 
 //! Reading one article: budgeted content windows, outlines and links.
 
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use zimz_core::Dirent;
+use zimz_extract::Document;
 
 use crate::library::Library;
 use crate::{Error, Result};
@@ -25,6 +27,8 @@ pub enum Format {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ArticleRequest {
+    /// Archive name; optional when path is a full zim:// citation.
+    #[serde(default)]
     pub archive: String,
     /// Article path from a search hit, a `zim://` URI, or a title.
     pub path: String,
@@ -40,6 +44,10 @@ pub struct ArticleRequest {
     /// Return only this section: its index from the outline or (a prefix of) its title.
     #[serde(default)]
     pub section: Option<String>,
+    /// Read these sections in order as Markdown passages sharing max_chars.
+    /// Continue a passage by reading its URI with its next_offset.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<String>,
 }
 
 fn default_max_chars() -> usize {
@@ -54,8 +62,20 @@ pub struct OutlineItem {
     /// Heading level (1 = top).
     pub level: u8,
     pub title: String,
+    pub uri: String,
     /// Characters of Markdown in the section, subsections included.
     pub chars: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Passage {
+    pub section: String,
+    pub uri: String,
+    pub content: String,
+    pub offset: usize,
+    pub total_chars: usize,
+    pub next_offset: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +88,9 @@ pub struct ArticleResponse {
     pub uri: String,
     pub format: Format,
     pub content: String,
+    /// For a sections request, these passages carry the content and continuation offsets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passages: Vec<Passage>,
     /// Character offset of `content` within the whole document (or section).
     pub offset: usize,
     /// Offset to continue from; absent when `content` reaches the end.
@@ -159,80 +182,207 @@ pub(crate) fn char_window(
     (s[start..end].to_string(), total, next)
 }
 
-pub(crate) fn outline_items(doc: &zimz_extract::Document) -> Vec<OutlineItem> {
+pub(crate) fn section_uri(uri: &str, anchor: &str) -> String {
+    format!("{uri}#{}", zimz_extract::links::uri_component(anchor))
+}
+
+fn outline_items(doc: &Document, uri: &str) -> Vec<OutlineItem> {
     doc.outline()
         .into_iter()
         .map(|o| OutlineItem {
             index: o.index,
             level: o.level,
             title: o.title,
+            uri: section_uri(uri, &doc.sections[o.index].anchor),
             chars: o.chars,
         })
         .collect()
 }
 
+fn missing_section(doc: &Document, name: &str) -> Error {
+    let known: Vec<_> = doc
+        .sections
+        .iter()
+        .enumerate()
+        .take(60)
+        .map(|(i, s)| format!("{i}={:?}", s.title))
+        .collect();
+    Error::Invalid(format!(
+        "no section matching {name:?}; sections: {}",
+        known.join(", ")
+    ))
+}
+
+/// Bare entry paths historically allow unused fragments. A full citation must resolve exactly.
+fn selected_section(
+    doc: &Document,
+    name: Option<&str>,
+    fragment: Option<&str>,
+    citation: bool,
+) -> Result<Option<usize>> {
+    if let Some(name) = name {
+        return doc
+            .find_section(name)
+            .map(Some)
+            .ok_or_else(|| missing_section(doc, name));
+    }
+    let Some(fragment) = fragment else {
+        return Ok(None);
+    };
+    let anchor = percent_decode_str(fragment).decode_utf8_lossy();
+    let selected = doc.find_anchor(&anchor);
+    if citation && selected.is_none() {
+        return Err(missing_section(doc, &anchor));
+    }
+    Ok(selected)
+}
+
+fn read_passages(doc: &Document, uri: &str, req: &ArticleRequest) -> Result<Vec<Passage>> {
+    let sections: Vec<_> = req
+        .sections
+        .iter()
+        .map(|name| {
+            doc.find_section(name)
+                .ok_or_else(|| missing_section(doc, name))
+        })
+        .collect::<Result<_>>()?;
+    let mut limits: Vec<_> = sections
+        .iter()
+        .map(|&i| {
+            doc.section_markdown(i)
+                .unwrap_or_default()
+                .chars()
+                .count()
+                .saturating_sub(req.offset)
+        })
+        .collect();
+    // Allocate short passages first so their unused share is available to longer ones.
+    let mut order: Vec<_> = (0..limits.len()).collect();
+    order.sort_by_key(|&i| limits[i]);
+    let mut remaining = req.max_chars;
+    for (n, i) in order.into_iter().enumerate() {
+        limits[i] = limits[i].min(remaining.div_ceil(limits.len() - n));
+        remaining -= limits[i];
+    }
+    let mut passages = Vec::with_capacity(sections.len());
+    for (i, limit) in sections.into_iter().zip(limits) {
+        let (content, total_chars, next_offset) = char_window(
+            doc.section_markdown(i).unwrap_or_default(),
+            req.offset,
+            limit,
+        );
+        let section = &doc.sections[i];
+        passages.push(Passage {
+            section: section.title.clone(),
+            uri: section_uri(uri, &section.anchor),
+            content,
+            offset: req.offset,
+            total_chars,
+            next_offset,
+        });
+    }
+    Ok(passages)
+}
+
+fn raw_article(
+    slot: &crate::Slot,
+    resolved: crate::Resolved,
+    req: &ArticleRequest,
+    uri: String,
+    has_fragment: bool,
+) -> Result<ArticleResponse> {
+    if req.section.is_some() || has_fragment || !req.sections.is_empty() {
+        return Err(Error::Invalid(
+            "section reads return Markdown; use an article path for raw HTML".into(),
+        ));
+    }
+    let data = slot.archive().item_data(&resolved.dirent)?;
+    let html = String::from_utf8_lossy(&data);
+    let (content, total, next) = char_window(&html, req.offset, req.max_chars);
+    Ok(ArticleResponse {
+        archive: slot.name().to_string(),
+        path: resolved.path,
+        title: resolved.dirent.title().to_string(),
+        uri,
+        format: Format::Html,
+        content,
+        passages: Vec::new(),
+        offset: req.offset,
+        next_offset: next,
+        total_chars: total,
+        truncated: next.is_some(),
+        word_count: None,
+        outline: None,
+        links_count: None,
+        section: None,
+        redirected_from: resolved.redirected_from,
+        adapter: format!("{:?}", slot.adapter()),
+    })
+}
+
 impl Library {
     pub fn read_article(&self, req: &ArticleRequest) -> Result<ArticleResponse> {
+        let uri_archive = req
+            .path
+            .trim()
+            .strip_prefix("zim://")
+            .map(|s| s.split('/').next().unwrap_or(s));
+        let archive = uri_archive.unwrap_or(&req.archive);
         let idx = self
-            .slot_index(&req.archive)
-            .ok_or_else(|| Error::NoSuchArchive(req.archive.clone()))?;
+            .slot_index(archive)
+            .ok_or_else(|| Error::NoSuchArchive(archive.to_string()))?;
+        if uri_archive.is_some()
+            && !req.archive.is_empty()
+            && self.slot_index(&req.archive) != Some(idx)
+        {
+            return Err(Error::Invalid(
+                "archive differs from the citation's archive".into(),
+            ));
+        }
         let slot = &self.slots()[idx];
         let resolved = slot.resolve_entry(&req.path)?;
-        let max_chars = req.max_chars.max(1);
+        let max_chars = req.max_chars;
         let uri = slot.uri(&resolved.path);
+        let fragment = req
+            .path
+            .trim()
+            .split_once('#')
+            .map(|(_, f)| f)
+            .filter(|f| !f.is_empty());
+        if !req.sections.is_empty() && (req.section.is_some() || fragment.is_some()) {
+            return Err(Error::Invalid(
+                "use sections with an article path, or read one section".into(),
+            ));
+        }
 
         if req.format == Format::Html {
-            let data = slot.archive().item_data(&resolved.dirent)?;
-            let html = String::from_utf8_lossy(&data);
-            let (content, total, next) = char_window(&html, req.offset, max_chars);
-            return Ok(ArticleResponse {
-                archive: slot.name().to_string(),
-                path: resolved.path,
-                title: resolved.dirent.title().to_string(),
-                uri,
-                format: Format::Html,
-                content,
-                offset: req.offset,
-                next_offset: next,
-                total_chars: total,
-                truncated: next.is_some(),
-                word_count: None,
-                outline: None,
-                links_count: None,
-                section: None,
-                redirected_from: resolved.redirected_from,
-                adapter: format!("{:?}", slot.adapter()),
-            });
+            return raw_article(slot, resolved, req, uri, fragment.is_some());
         }
 
         let doc = self.document(idx, &resolved.dirent)?;
-        let (body, section_title): (&str, Option<String>) = match &req.section {
-            Some(name) => {
-                let i = doc.find_section(name).ok_or_else(|| {
-                    let known: Vec<String> = doc
-                        .sections
-                        .iter()
-                        .enumerate()
-                        .take(60)
-                        .map(|(i, s)| format!("{i}={:?}", s.title))
-                        .collect();
-                    Error::Invalid(format!(
-                        "no section matching {name:?}; sections: {}",
-                        known.join(", ")
-                    ))
-                })?;
-                (
-                    doc.section_markdown(i).unwrap_or(""),
-                    Some(doc.sections[i].title.clone()),
-                )
-            }
-            None => match req.format {
-                Format::Text => (doc.text.as_str(), None),
-                _ => (doc.markdown.as_str(), None),
-            },
+        let selected = selected_section(
+            &doc,
+            req.section.as_deref(),
+            fragment,
+            uri_archive.is_some(),
+        )?;
+        let passages = read_passages(&doc, &uri, req)?;
+        let (content, total, next) = if passages.is_empty() {
+            let body = match selected {
+                Some(i) => doc.section_markdown(i).unwrap_or_default(),
+                None if req.format == Format::Text => &doc.text,
+                None => &doc.markdown,
+            };
+            char_window(body, req.offset, max_chars)
+        } else {
+            (
+                String::new(),
+                passages.iter().map(|p| p.total_chars).sum(),
+                None,
+            )
         };
-        let (content, total, next) = char_window(body, req.offset, max_chars);
-        let truncated = next.is_some();
+        let truncated = next.is_some() || passages.iter().any(|p| p.next_offset.is_some());
+        let outline = (next.is_some() && selected.is_none()).then(|| outline_items(&doc, &uri));
         Ok(ArticleResponse {
             archive: slot.name().to_string(),
             path: resolved.path,
@@ -241,24 +391,28 @@ impl Library {
             } else {
                 doc.title.clone()
             },
-            uri,
-            format: if req.section.is_some() {
+            uri: selected.map_or_else(
+                || uri.clone(),
+                |i| section_uri(&uri, &doc.sections[i].anchor),
+            ),
+            format: if selected.is_some() || !passages.is_empty() {
                 Format::Markdown
             } else {
                 req.format
             },
             content,
+            passages,
             offset: req.offset,
             next_offset: next,
             total_chars: total,
             truncated,
             word_count: Some(doc.word_count),
-            outline: (truncated && req.section.is_none()).then(|| outline_items(&doc)),
+            outline,
             links_count: Some(
                 doc.internal_links(slot.archive().uses_new_namespace_scheme())
                     .len(),
             ),
-            section: section_title,
+            section: selected.map(|i| doc.sections[i].title.clone()),
             redirected_from: resolved.redirected_from,
             adapter: format!("{:?}", doc.adapter),
         })
@@ -271,14 +425,15 @@ impl Library {
         let slot = &self.slots()[idx];
         let resolved = slot.resolve_entry(path)?;
         let doc = self.document(idx, &resolved.dirent)?;
+        let uri = slot.uri(&resolved.path);
         Ok(OutlineResponse {
             archive: slot.name().to_string(),
-            uri: slot.uri(&resolved.path),
+            sections: outline_items(&doc, &uri),
+            uri,
             path: resolved.path,
             title: doc.title.clone(),
             word_count: doc.word_count,
             total_chars: doc.markdown.chars().count(),
-            sections: outline_items(&doc),
         })
     }
 
@@ -330,6 +485,56 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_passages_share_budget_in_requested_order_and_resume() {
+        let opts = zimz_extract::RenderOptions {
+            base_namespace: b'C',
+            base_path: "page",
+            new_scheme: true,
+            link_prefix: None,
+            image_sources: false,
+        };
+        let doc = zimz_extract::extract_html(
+            "<h2 id='part#1'>First</h2><p>一二三四五</p><h2 id='café'>Second</h2><p>ééééé</p>",
+            zimz_extract::Adapter::Generic,
+            None,
+            &opts,
+        );
+        let req: ArticleRequest = serde_json::from_value(serde_json::json!({
+            "path": "zim://wiki/page", "sections": ["Second", "First"], "max_chars": 23,
+        }))
+        .unwrap();
+        let passages = read_passages(&doc, &req.path, &req).unwrap();
+        assert_eq!(passages.len(), 2);
+        assert_eq!(passages[0].uri, "zim://wiki/page#caf%C3%A9");
+        assert_eq!(passages[1].uri, "zim://wiki/page#part%231");
+        assert_eq!(
+            passages
+                .iter()
+                .map(|p| p.content.chars().count())
+                .sum::<usize>(),
+            23
+        );
+        let total = passages.iter().map(|p| p.total_chars).sum();
+        let complete = read_passages(
+            &doc,
+            &req.path,
+            &ArticleRequest {
+                max_chars: total,
+                ..req.clone()
+            },
+        )
+        .unwrap();
+        assert!(complete.iter().all(|p| p.next_offset.is_none()));
+        for p in passages {
+            let body = doc
+                .section_markdown(doc.find_section(&p.section).unwrap())
+                .unwrap();
+            let (rest, _, _) = char_window(body, p.next_offset.unwrap(), usize::MAX);
+            assert_eq!(p.content + &rest, body);
+        }
+    }
 
     #[test]
     fn window_counts_chars_not_bytes() {

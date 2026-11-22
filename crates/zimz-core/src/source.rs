@@ -273,7 +273,7 @@ impl MultiPartSource {
             )));
         }
         let stem = &name[..name.len() - 2];
-        let dir = first.parent().map(Path::to_path_buf).unwrap_or_default();
+        let dir = first.parent().map_or_default(Path::to_path_buf);
         let mut out = Vec::new();
         'outer: for a in b'a'..=b'z' {
             for b in b'a'..=b'z' {
@@ -351,8 +351,7 @@ impl Source for MultiPartSource {
         let first = self
             .parts
             .first()
-            .map(|p| p.path.display().to_string())
-            .unwrap_or_default();
+            .map_or_default(|p| p.path.display().to_string());
         format!("{first} (+{} parts)", self.parts.len().saturating_sub(1))
     }
 }

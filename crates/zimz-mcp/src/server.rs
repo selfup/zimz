@@ -31,9 +31,9 @@ the most relevant excerpts with `zim://archive/path#Section` citations, packed u
 character budget. Use `search` when you want a ranked list to choose from: words are ANDed \
 and stemmed, a \"quoted phrase\" must appear in that order in the article, hits flagged \
 `partial` matched only some words (added when the strict search fell short), and \
-`next_cursor` fetches the next page. Then `read_article` with the hit's `archive` and `path` \
-(a title or `zim://` URI also works); it never returns more than `max_chars`, and when cut it \
-includes the outline so you can ask for one `section` or continue from `next_offset`. \
+`next_cursor` fetches the next page. Pass a citation unchanged as the `path` of `read_article`, \
+or give the hit's `archive` and `path`. Compare headings with `sections` under one `max_chars` \
+budget. Each passage can be resumed at its URI with its `next_offset`. \
 `suggest` completes titles, `outline` and `links` help you navigate an article, \
 `list_archives` shows what is available and `archive_health` diagnoses indexes and caches. \
 Restrict `archives` to relevant names or globs (e.g. `devdocs_*`) to save time. Cite sources \
@@ -192,7 +192,7 @@ impl ZimServer {
 
     #[tool(
         name = "read_article",
-        description = "Read an article as Markdown (default), plain text or HTML, at most `max_chars` characters from `offset`. When the article is longer the response carries the outline; ask for one `section` (index or heading text) or continue from `next_offset`.",
+        description = "Read an article or follow a cited passage by passing its zim:// URI as path. Select one section or compare several with sections (Markdown passages in request order sharing max_chars). Continue any passage with its URI and next_offset. Whole articles also support text and raw HTML.",
         annotations(title = "Read article", read_only_hint = true, idempotent_hint = true, open_world_hint = false),
         output_schema = schema_for_output::<zimz_search::ArticleResponse>()
     )]
@@ -337,8 +337,8 @@ impl ServerHandler for ZimServer {
             ResourceTemplate::new("zim://{archive}/{path}", "article")
                 .with_title("Article as Markdown")
                 .with_description(
-                    "An article (whole, as Markdown). Append `?format=text` or `?format=html` \
-                     for other renderings; `{path}` may be a path from a search hit or a title.",
+                    "Read an article as Markdown or follow a #section citation. Whole articles \
+                     accept ?format=text or ?format=html. Paths and titles are supported.",
                 )
                 .with_mime_type("text/markdown"),
             ResourceTemplate::new("zim://{archive}", "archive")
@@ -378,7 +378,10 @@ impl ServerHandler for ZimServer {
                         )
                     }
                     Some(pq) => {
-                        let (path, query) = pq.split_once('?').unwrap_or((&pq, ""));
+                        let (before_fragment, fragment) = pq.split_once('#').unwrap_or((&pq, ""));
+                        let (path, query) = before_fragment
+                            .split_once('?')
+                            .unwrap_or((before_fragment, ""));
                         let format = query
                             .split('&')
                             .find_map(|kv| kv.strip_prefix("format="))
@@ -387,15 +390,21 @@ impl ServerHandler for ZimServer {
                                 "html" => Format::Html,
                                 _ => Format::Markdown,
                             });
+                        let mut citation = format!("zim://{archive}/{path}");
+                        if !fragment.is_empty() {
+                            citation.push('#');
+                            citation.push_str(fragment);
+                        }
                         let article = lib.read_article(&ArticleRequest {
                             archive: slot.name().to_string(),
-                            path: path.to_string(),
+                            path: citation,
                             format,
                             max_chars: usize::MAX / 2,
                             offset: 0,
                             section: None,
+                            sections: Vec::new(),
                         })?;
-                        let mime = match format {
+                        let mime = match article.format {
                             Format::Markdown => "text/markdown",
                             Format::Text => "text/plain",
                             Format::Html => "text/html",

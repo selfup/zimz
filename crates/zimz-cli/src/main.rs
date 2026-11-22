@@ -769,8 +769,7 @@ fn suggest_cmd(path: &PathBuf, prefix: &str, limit: usize, time: bool) -> anyhow
             .target_path
             .as_deref()
             .filter(|t| *t != p)
-            .map(|t| format!(" -> {t}"))
-            .unwrap_or_default();
+            .map_or_default(|t| format!(" -> {t}"));
         writeln!(out, "{:>3}. {}  [{p}]{target}", i + 1, s.title)?;
     }
     if time {

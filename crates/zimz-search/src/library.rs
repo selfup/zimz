@@ -186,7 +186,11 @@ impl Slot {
 
     /// `zim://name/path`.
     pub fn uri(&self, path: &str) -> String {
-        format!("zim://{}/{}", self.info.name, path)
+        format!(
+            "zim://{}/{}",
+            self.info.name,
+            zimz_extract::links::uri_component(path)
+        )
     }
 
     /// The prefix given to `zimz-extract` so Markdown links become `zim://` URIs.
@@ -253,7 +257,11 @@ impl Slot {
         let decoded = percent_decode_str(raw).decode_utf8_lossy().into_owned();
         let mut candidates: Vec<String> = vec![raw.to_string()];
         if decoded != raw {
-            candidates.push(decoded.clone());
+            if path.trim().starts_with("zim://") {
+                candidates.insert(0, decoded.clone());
+            } else {
+                candidates.push(decoded.clone());
+            }
         }
         let underscored = decoded.replace(' ', "_");
         if underscored != decoded {
@@ -337,7 +345,12 @@ struct ExtractCache {
 }
 
 fn document_bytes(doc: &Document) -> usize {
-    doc.markdown.len() + doc.text.len() + doc.links.len() * 64 + doc.sections.len() * 48 + 256
+    let sections = doc
+        .sections
+        .iter()
+        .map(|s| size_of::<zimz_extract::Section>() + s.title.len() + s.anchor.len())
+        .sum::<usize>();
+    doc.markdown.len() + doc.text.len() + doc.links.len() * 64 + sections + 256
 }
 
 impl ExtractCache {
@@ -446,8 +459,7 @@ pub fn discover_files(dirs: &[PathBuf], recursive: bool) -> Result<Vec<PathBuf>>
 fn is_archive_file(path: &Path) -> bool {
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().to_lowercase());
     std::path::Path::new(&name)
         .extension()
         .is_some_and(|ext| ext == "zim" || ext == "zimaa")

@@ -5,7 +5,30 @@
 //! hrefs are percent-encoded and relative to the page (`../-/style.css`, `./Foo`,
 //! `Definition%3AAngle`), with `?query` and `#fragment` parts that are not part of a path.
 
-use percent_encoding::percent_decode_str;
+use percent_encoding::{
+    AsciiSet, CONTROLS, PercentEncode, percent_decode_str, utf8_percent_encode,
+};
+
+/// Escape path/fragment data before adding URI delimiters or wrapping in Markdown.
+pub fn uri_component(value: &str) -> PercentEncode<'_> {
+    const ESCAPE: &AsciiSet = &CONTROLS
+        .add(b' ')
+        .add(b'#')
+        .add(b'%')
+        .add(b'?')
+        .add(b'(')
+        .add(b')')
+        .add(b'<')
+        .add(b'>')
+        .add(b'[')
+        .add(b']')
+        .add(b'"')
+        .add(b'\\')
+        .add(b'`')
+        .add(b'{')
+        .add(b'}');
+    utf8_percent_encode(value, ESCAPE)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkTarget {

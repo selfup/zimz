@@ -461,6 +461,7 @@ fn article(archive: &str, path: &str) -> ArticleRequest {
         max_chars: 8000,
         offset: 0,
         section: None,
+        sections: Vec::new(),
     }
 }
 
@@ -642,6 +643,13 @@ fn context_budget_stops_packing() {
     let r = f.library.context(&req).unwrap();
     assert!(r.chars_used <= 700);
     assert!(r.excerpts.len() <= 2);
+    for cap in [0, 1, 80] {
+        req.budget_chars = cap;
+        let r = f.library.context(&req).unwrap();
+        assert_eq!(r.budget_chars, cap);
+        assert!(r.chars_used <= cap);
+        assert_eq!(r.excerpts.is_empty(), cap == 0);
+    }
 }
 
 #[test]

@@ -278,6 +278,23 @@ async fn context_packs_cited_excerpts() {
     let text = text_of(&r);
     assert!(text.contains("Source: zim://"), "{text}");
     assert!(text.contains("excerpt(s)"), "{text}");
+    let cited = excerpts
+        .iter()
+        .find(|e| e["section"].is_string())
+        .expect("a section citation");
+    let uri = cited["uri"].as_str().unwrap();
+    let read = call(&client, "read_article", json!({"path": uri})).await;
+    let article = read.structured_content.unwrap();
+    assert_eq!(article["uri"], uri);
+    assert_eq!(article["section"], cited["section"]);
+    let resource = client
+        .read_resource(ReadResourceRequestParams::new(uri.to_owned()))
+        .await
+        .unwrap();
+    let ResourceContents::TextResourceContents { text, .. } = &resource.contents[0] else {
+        panic!("expected text")
+    };
+    assert!(text.starts_with(article["content"].as_str().unwrap()));
     client.cancel().await.unwrap();
 }
 

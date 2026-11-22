@@ -4,12 +4,13 @@
 //! DOM → Markdown or plain text, recording headings and links on the way.
 
 use std::fmt::Write as _;
+use std::sync::LazyLock;
 
 use scraper::node::Node;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::document::{Link, Section};
-use crate::links::{LinkTarget, resolve_href};
+use crate::links::{LinkTarget, resolve_href, uri_component};
 
 #[derive(Debug, Clone)]
 pub struct RenderOptions<'a> {
@@ -59,6 +60,43 @@ fn attr<'a>(el: &ElementRef<'a>, name: &str) -> Option<&'a str> {
 
 fn has_class(el: &ElementRef<'_>, class: &str) -> bool {
     el.value().classes().any(|c| c == class)
+}
+
+fn math_tex(el: ElementRef<'_>) -> Option<String> {
+    static ANNOTATION: LazyLock<Selector> =
+        LazyLock::new(|| Selector::parse("annotation").unwrap());
+    attr(&el, "alttext")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            el.select(&ANNOTATION)
+                .map(|a| a.text().collect::<String>())
+                .find(|s| !s.trim().is_empty())
+        })
+}
+
+fn redundant_math_image(el: ElementRef<'_>) -> bool {
+    static MATH: LazyLock<Selector> = LazyLock::new(|| Selector::parse("math").unwrap());
+    if !el
+        .value()
+        .classes()
+        .any(|c| c.starts_with("mwe-math-fallback-image-"))
+    {
+        return false;
+    }
+    el.ancestors()
+        .filter_map(ElementRef::wrap)
+        .find(|p| has_class(p, "mwe-math-element"))
+        .is_some_and(|wrapper| {
+            wrapper.select(&MATH).any(|math| {
+                let hidden = std::iter::once(math)
+                    .chain(math.ancestors().filter_map(ElementRef::wrap))
+                    .take_while(|el| *el != wrapper)
+                    .any(|el| attr(&el, "hidden").is_some() || SKIP.contains(&el.value().name()));
+                !hidden && math_tex(math).is_some()
+            })
+        })
 }
 
 const BLOCKISH: &[&str] = &[
@@ -237,6 +275,16 @@ impl Renderer<'_> {
                 self.sections.push(Section {
                     level,
                     title,
+                    anchor: attr(&el, "id")
+                        .filter(|id| !id.is_empty())
+                        .or_else(|| {
+                            el.descendants()
+                                .filter_map(ElementRef::wrap)
+                                .find(|e| has_class(e, "mw-headline"))
+                                .and_then(|e| attr(&e, "id"))
+                        })
+                        .unwrap_or_default()
+                        .to_owned(),
                     start,
                     end: 0,
                 });
@@ -368,7 +416,7 @@ impl Renderer<'_> {
             "table" => self.render_table(el),
             "img" => {
                 let alt = attr(&el, "alt").map_or("", str::trim);
-                if alt.is_empty() {
+                if alt.is_empty() || redundant_math_image(el) {
                     return;
                 }
                 self.start_line();
@@ -410,15 +458,19 @@ impl Renderer<'_> {
                         let dest = match t {
                             LinkTarget::Internal { fragment, .. } => {
                                 let p = t.user_path(self.opts.new_scheme).unwrap_or_default();
-                                let mut d = format!("{}{p}", self.opts.link_prefix.unwrap_or(""));
+                                let mut d = format!(
+                                    "{}{}",
+                                    self.opts.link_prefix.unwrap_or(""),
+                                    uri_component(&p)
+                                );
                                 if let Some(f) = fragment {
                                     d.push('#');
-                                    d.push_str(f);
+                                    let _ = write!(d, "{}", uri_component(f));
                                 }
                                 d
                             }
                             LinkTarget::External(u) => u.clone(),
-                            LinkTarget::Anchor(f) => format!("#{f}"),
+                            LinkTarget::Anchor(f) => format!("#{}", uri_component(f)),
                         };
                         self.out.push('[');
                         self.out.push_str(&inner);
@@ -446,22 +498,15 @@ impl Renderer<'_> {
                 }
             }
             "math" => {
-                let tex = attr(&el, "alttext").map(str::to_string).or_else(|| {
-                    el.select(&Selector::parse("annotation").unwrap())
-                        .next()
-                        .map(|a| a.text().collect::<String>())
-                });
-                if let Some(t) = tex {
+                if let Some(t) = math_tex(el) {
                     let t = t.trim();
-                    if !t.is_empty() {
-                        self.start_line();
-                        if self.md {
-                            self.out.push('$');
-                            self.out.push_str(t);
-                            self.out.push('$');
-                        } else {
-                            self.out.push_str(t);
-                        }
+                    self.start_line();
+                    if self.md {
+                        self.out.push('$');
+                        self.out.push_str(t);
+                        self.out.push('$');
+                    } else {
+                        self.out.push_str(t);
                     }
                 }
             }
@@ -685,6 +730,9 @@ pub fn render(root: ElementRef<'_>, opts: &RenderOptions<'_>, markdown: bool) ->
     // section ranges: re-locate headings in the cleaned output by walking heading lines
     let mut sections = r.sections;
     relocate_sections(&mut sections, &output, markdown);
+    if markdown {
+        crate::document::assign_anchors(&mut sections);
+    }
     Rendered {
         output,
         sections,
